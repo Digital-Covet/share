@@ -1,0 +1,46 @@
+{
+	"name": "send-digital-covet-com",
+	"type": "module",
+	"scripts": {
+		"dev": "vite dev",
+		"build": "vite build",
+		"start": "vite start",
+		"preview": "vite preview",
+		"format": "biome format --write",
+		"lint": "biome lint --write",
+		"generate": "prisma generate --schema=prisma/auth.prisma && prisma generate --schema=prisma/project.prisma",
+		"migrate:auth": "prisma migrate dev --schema=prisma/auth.prisma",
+		"migrate:project": "prisma migrate dev --schema=prisma/project.prisma"
+	},
+	"dependencies": {
+		"@ark-ui/solid": "^5.37.0",
+		"@fontsource-variable/jost": "^5.2.8",
+		"@fontsource-variable/rubik": "^5.2.8",
+		"@prisma/adapter-pg": "^7.8.0",
+		"@prisma/client": "^7.8.0",
+		"@solidjs/meta": "^0.29.4",
+		"@solidjs/router": "^0.15.0",
+		"@solidjs/start": "2.0.0-alpha.2",
+		"@solidjs/vite-plugin-nitro-2": "^0.1.0",
+		"@tailwindcss/vite": "^4.3.0",
+		"better-auth": "^1.6.18",
+		"dotenv": "^17.4.2",
+		"lucide-solid": "^1.17.0",
+		"pg": "^8.21.0",
+		"solid-js": "^1.9.5",
+		"tailwindcss": "^4.3.0",
+		"typescript": "^6.0.3",
+		"vite": "^7.0.0",
+		"zeptomail": "^8.0.1",
+		"zod": "^4.4.3"
+	},
+	"engines": {
+		"node": ">=22"
+	},
+	"devDependencies": {
+		"@biomejs/biome": "2.4.16",
+		"@types/node": "^25.9.3",
+		"@types/pg": "^8.20.0",
+		"prisma": "^7.8.0"
+	}
+}
