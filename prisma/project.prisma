@@ -1,0 +1,152 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../generated/project"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum FileStatus {
+  PENDING
+  READY
+  EXPIRED
+  REVOKED
+  DELETED
+  FAILED
+}
+
+enum UploadStatus {
+  INITIATED
+  UPLOADING
+  PAUSED
+  COMPLETED
+  ABORTED
+  EXPIRED
+  FAILED
+}
+
+enum ShareLinkStatus {
+  ACTIVE
+  EXPIRED
+  REVOKED
+  CONSUMED
+}
+
+enum ReportStatus {
+  OPEN
+  TRIAGED
+  CLOSED
+}
+
+enum ReportReason {
+  MALWARE
+  CSAM
+  ABUSE
+  COPYRIGHT
+  OTHER
+}
+
+model File {
+  id             String      @id @default(cuid())
+  userId         String?
+  fileName       String
+  mimeType       String
+  originalSize   BigInt
+  encryptedSize  BigInt?
+  chunkSize      Int         @default(5242880)
+  totalChunks    Int
+  ivBaseHash     String
+  r2Key          String      @unique
+  status         FileStatus  @default(PENDING)
+  expiresAt      DateTime?
+  createdAt      DateTime    @default(now())
+  updatedAt      DateTime    @updatedAt
+
+  uploadSessions UploadSession[]
+  shareLinks     ShareLink[]
+  reports        FileReport[]
+
+  @@index([userId])
+  @@index([status, expiresAt])
+  @@index([createdAt])
+  @@map("files")
+}
+
+model UploadSession {
+  id                  String       @id @default(cuid())
+  fileId              String       @unique
+  multipartUploadId   String?      @unique
+  status              UploadStatus @default(INITIATED)
+  totalParts          Int
+  completedPartEtags  String?      // JSON string for UI/resume state
+  lastRequestedPart   Int          @default(0)
+  startedAt           DateTime     @default(now())
+  completedAt         DateTime?
+  expiresAt           DateTime?
+  createdAt           DateTime     @default(now())
+  updatedAt           DateTime     @updatedAt
+
+  file File @relation(fields: [fileId], references: [id], onDelete: Cascade)
+
+  @@index([status, updatedAt])
+  @@index([expiresAt])
+  @@map("upload_sessions")
+}
+
+model ShareLink {
+  id                  String          @id @default(cuid())
+  fileId              String
+  downloadCount       Int             @default(0)
+  maxDownloads        Int?
+  isOneTime           Boolean         @default(false)
+  isPasswordProtected Boolean         @default(false)
+  passwordHash        String?
+  status              ShareLinkStatus @default(ACTIVE)
+  expiresAt           DateTime?
+  consumedAt          DateTime?
+  revokedAt           DateTime?
+  createdAt           DateTime        @default(now())
+  updatedAt           DateTime        @updatedAt
+
+  file File @relation(fields: [fileId], references: [id], onDelete: Cascade)
+
+  @@index([fileId])
+  @@index([status, expiresAt])
+  @@index([createdAt])
+  @@map("share_links")
+}
+
+model FileReport {
+  id               String        @id @default(cuid())
+  fileId           String
+  reportedByUserId String?
+  reason           ReportReason
+  details          String?
+  status           ReportStatus  @default(OPEN)
+  reviewedByUserId  String?
+  reviewedAt       DateTime?
+  resolutionNote   String?
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
+
+  file File @relation(fields: [fileId], references: [id], onDelete: Cascade)
+
+  @@index([fileId])
+  @@index([status, createdAt])
+  @@map("file_reports")
+}
+
+model UserPreference {
+  id                      String   @id @default(cuid())
+  userId                  String   @unique
+  defaultExpirationHours   Int      @default(168)
+  defaultMaxDownloads      Int?
+  defaultOneTimeDownload   Boolean  @default(false)
+  notifyOnDownload         Boolean  @default(true)
+  createdAt                DateTime @default(now())
+  updatedAt                DateTime @updatedAt
+
+  @@index([userId])
+  @@map("user_preferences")
+}
