@@ -6,48 +6,15 @@ import { sendEmail } from "@/services/email";
 import { renderDeleteVerificationEmail } from "@/services/email-templates";
 import { ac, adminRole, employeeRole, superadminRole } from "./permissions";
 
-function parseTrustedOrigins(value?: string): string[] {
-  if (!value) return [];
-
-  const origins = value
-    .split(",")
-    .map((origin) => origin.trim())
-    .filter(Boolean);
-
-  const uniqueOrigins = [...new Set(origins)];
-
-  if (process.env.NODE_ENV !== "production") {
-    return uniqueOrigins;
-  }
-
-  return uniqueOrigins.filter(
-    (origin) =>
-      !/^https?:\/\/(localhost|127\.0\.0\.1|\[::1\])(?::\d+)?(?:\/|$)/i.test(
-        origin,
-      ),
-  );
-}
-
-function resolveTrustedOrigins(): string[] {
-  const configured = parseTrustedOrigins(
-    process.env.BETTER_AUTH_TRUSTED_ORIGINS ?? process.env.AUTH_TRUSTED_ORIGINS,
-  );
-
-  if (configured.length > 0) {
-    return configured;
-  }
-
-  return process.env.NODE_ENV === "production"
-    ? []
-    : ["http://localhost:3000", "http://localhost:5173"];
-}
-
 const storeBackupCodes =
   process.env.NODE_ENV === "development" ? "plain" : "encrypted";
 
 export const auth = betterAuth({
   secret: process.env.BETTER_AUTH_SECRET,
-  trustedOrigins: resolveTrustedOrigins(),
+  baseURL: {
+    allowedHosts: ["share.digitalcovet.com", "localhost:5173"],
+    protocol: process.env.NODE_ENV === "production" ? "https" : "http",
+  },
   database: prismaAdapter(prisma, {
     provider: "postgresql",
   }),
