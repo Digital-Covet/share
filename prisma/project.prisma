@@ -28,9 +28,7 @@ enum UploadStatus {
 
 enum ShareLinkStatus {
   ACTIVE
-  EXPIRED
   REVOKED
-  CONSUMED
 }
 
 enum ReportStatus {
@@ -59,6 +57,9 @@ model File {
   ivBaseHash     String
   r2Key          String      @unique
   status         FileStatus  @default(PENDING)
+  // NULL = never expire (authenticated internal uploads only).
+  // Cron skips NULL rows intentionally — do NOT use `expiresAt IS NULL` as a purge signal.
+  // Anonymous uploads must always get a non-null expiry set server-side.
   expiresAt      DateTime?
   createdAt      DateTime    @default(now())
   updatedAt      DateTime    @updatedAt
@@ -83,6 +84,8 @@ model UploadSession {
   lastRequestedPart   Int          @default(0)
   startedAt           DateTime     @default(now())
   completedAt         DateTime?
+  // NULL = no explicit expiry. Cron uses 24h inactivity fallback (updatedAt) for these.
+  // Non-null: cron aborts when `expiresAt < now()`.
   expiresAt           DateTime?
   createdAt           DateTime     @default(now())
   updatedAt           DateTime     @updatedAt
