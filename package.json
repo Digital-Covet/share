@@ -3,7 +3,7 @@
 	"type": "module",
 	"scripts": {
 		"dev": "vite dev",
-		"build": "vite build",
+		"build": "prisma generate --schema=prisma/auth.prisma && prisma generate --schema=prisma/project.prisma && vite build",
 		"start": "vite start",
 		"preview": "vite preview",
 		"format": "biome format --write",
