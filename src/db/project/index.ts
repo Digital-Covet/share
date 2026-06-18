@@ -17,12 +17,29 @@ const globalForPrisma = globalThis as typeof globalThis & PrismaGlobal;
 
 const adapter = new PrismaPg({ connectionString });
 
+const base = new PrismaClient({ adapter });
+
 export const prisma =
 	globalForPrisma.prismaProject ??
-	new PrismaClient({
-		adapter,
+	base.$extends({
+		result: {
+			file: {
+				originalSize: {
+					needs: { originalSize: true },
+					compute(f) {
+						return f.originalSize?.toString() ?? null;
+					},
+				},
+				encryptedSize: {
+					needs: { encryptedSize: true },
+					compute(f) {
+						return f.encryptedSize?.toString() ?? null;
+					},
+				},
+			},
+		},
 	});
 
 if (process.env.NODE_ENV !== "production") {
-	globalForPrisma.prismaProject = prisma;
+	globalForPrisma.prismaProject = prisma as PrismaClient;
 }
