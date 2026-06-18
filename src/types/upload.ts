@@ -11,7 +11,19 @@ export interface ShareData {
 }
 
 export interface SecuritySettings {
-	expiration: string;
+	expiration: "24h" | "7d" | "30d" | "custom";
+	customExpirationDate?: string;
 	oneTimeDownload: boolean;
 	maxDownloads: number | null;
+}
+
+export interface InitiateUploadResponse {
+	fileId: string;
+	uploadId: string | null;
+	presignedUrls: { partNumber: number; url: string; expiresAt: string }[];
+}
+
+export interface CompleteUploadResponse {
+	fileId: string;
+	shareLink: { id: string; expiresAt: string };
 }

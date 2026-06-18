@@ -1,4 +1,10 @@
-export type FileStatus = "Active" | "One-Time" | "Pending" | "Expired";
+export type FileStatus =
+	| "Active"
+	| "One-Time"
+	| "Pending"
+	| "Expired"
+	| "Consumed"
+	| "Revoked";
 export type FileType = "pdf" | "zip" | "document" | "image" | "spreadsheet";
 
 export interface FileItem {
