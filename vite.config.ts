@@ -12,4 +12,20 @@ export default defineConfig({
 			"@generated": path.resolve(__dirname, "./generated"),
 		},
 	},
+	build: {
+		rollupOptions: {
+			output: {
+				manualChunks(id) {
+					if (id.includes("node_modules")) {
+						if (/better-auth[\\/]/.test(id)) return "better-auth";
+						if (/@aws-sdk[\\/]/.test(id)) return "aws-sdk";
+						if (/@prisma[\\/]/.test(id)) return "prisma";
+						if (/@ark-ui[\\/]/.test(id)) return "ark-ui";
+						if (/solid-js[\\/]/.test(id)) return "solid-js";
+						if (/lucide-solid[\\/]/.test(id)) return "lucide";
+					}
+				},
+			},
+		},
+	},
 });
