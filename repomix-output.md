@@ -1,697 +1,1014 @@
 # Directory Structure
 ```
-prisma/auth.prisma
-src/components/auth/auth-guard.tsx
-src/components/auth/sign-out-button.tsx
-src/components/auth/two-factor-verify.tsx
-src/db/auth/index.ts
-src/lib/auth-client.ts
-src/lib/auth.server.ts
-src/lib/auth.ts
+src/components/upload/DropZone.tsx
+src/components/upload/SecureUpload.tsx
+src/components/upload/SettingsPanel.tsx
+src/components/upload/UploadProgress.tsx
+src/components/upload/UploadSuccess.tsx
 src/routes/api/auth/[...auth].ts
-src/routes/auth/forgot-password.tsx
-src/routes/auth/login.tsx
-src/routes/auth/reset-password.tsx
-src/routes/auth/verify-2fa.tsx
-src/types/auth.ts
+src/routes/api/files/complete-upload.ts
+src/routes/api/files/finalize.ts
+src/routes/api/files/initiate-upload.ts
+src/routes/upload.tsx
+src/types/upload.ts
+src/utils/upload.ts
 ```
 
 # Files
 
-## File: prisma/auth.prisma
-```prisma
-generator client {
-  provider = "prisma-client"
-  output   = "../generated/auth"
-}
-
-datasource db {
-  provider = "postgresql"
-}
-
-enum UserRole {
-  employee
-  admin
-  superadmin
-}
-
-model User {
-  id                  String       @id
-  name                String
-  email               String
-  emailVerified       Boolean      @default(false)
-  image               String?
-
-  createdAt           DateTime     @default(now())
-  updatedAt           DateTime     @updatedAt
-
-  twoFactorEnabled    Boolean?     @default(false)
-  passwordChanged     Boolean      @default(false)
-
-  role                UserRole     @default(employee)
-
-  banned              Boolean?     @default(false)
-  banReason           String?
-  banExpires          DateTime?
-
-  departmentId        String?
-
-  sessions            Session[]
-  accounts            Account[]
-  twofactors          TwoFactor[]
-
-  invitations         Invitation[] @relation("InvitationInvitedBy")
-  assignedInvitations Invitation[] @relation("InvitationUser")
-
-  @@unique([email])
-  @@index([departmentId])
-  @@map("user")
-}
-
-model Session {
-  id             String   @id
-  expiresAt      DateTime
-  token          String
-  createdAt      DateTime @default(now())
-  updatedAt      DateTime @updatedAt
-
-  ipAddress      String?
-  userAgent      String?
-
-  userId         String
-  user           User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  impersonatedBy String?
-
-  @@unique([token])
-  @@index([userId])
-  @@index([userId, expiresAt])
-  @@map("session")
-}
-
-model Account {
-  id                    String    @id
-
-  accountId             String
-  providerId            String
-
-  userId                String
-  user                  User      @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  accessToken           String?
-  refreshToken          String?
-  idToken               String?
-
-  accessTokenExpiresAt  DateTime?
-  refreshTokenExpiresAt DateTime?
-
-  scope                 String?
-  password              String?
-
-  createdAt             DateTime  @default(now())
-  updatedAt             DateTime  @updatedAt
-
-  @@index([userId])
-  @@map("account")
-}
-
-model Verification {
-  id         String   @id
-
-  identifier String
-  value      String
-  expiresAt  DateTime
-
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
-
-  @@index([identifier])
-  @@index([identifier, expiresAt])
-  @@map("verification")
-}
-
-model TwoFactor {
-  id          String   @id
-
-  secret      String
-  backupCodes String
-
-  userId      String
-  user        User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-
-  verified    Boolean? @default(true)
-
-  @@index([userId])
-  @@map("twoFactor")
-}
-
-model Invitation {
-  id         String    @id @default(cuid())
-
-  email      String
-
-  token      String    @unique
-
-  role       UserRole  @default(employee)
-
-  expiresAt  DateTime  @map("expires_at")
-  usedAt     DateTime? @map("used_at")
-
-  createdAt  DateTime  @default(now()) @map("created_at")
-
-  invitedBy  String?   @map("invited_by")
-  userId     String?   @map("user_id")
-
-  invitedByUser User? @relation("InvitationInvitedBy", fields: [invitedBy], references: [id])
-
-  user User? @relation("InvitationUser", fields: [userId], references: [id])
-
-  @@index([email])
-  @@map("invitations")
-}
-```
-
-## File: src/components/auth/auth-guard.tsx
+## File: src/routes/api/files/complete-upload.ts
 ```typescript
-import { useNavigate } from "@solidjs/router";
-import { Show, createEffect, createSignal, type JSX } from "solid-js";
-import { authClient } from "@/lib/auth-client";
-interface AuthGuardProps {
-	children: JSX.Element;
-	redirectTo?: string;
-}
-export default function AuthGuard(props: AuthGuardProps) {
-	const navigate = useNavigate();
-	const [isChecking, setIsChecking] = createSignal(true);
-	createEffect(() => {
-		const checkSession = async () => {
-			try {
-				const session = await authClient.getSession();
-				if (!session.data) {
-					navigate(props.redirectTo ?? "/auth/login", { replace: true });
-					return;
-				}
-			} catch {
-				navigate(props.redirectTo ?? "/auth/login", { replace: true });
-				return;
-			} finally {
-				setIsChecking(false);
-			}
-		};
-		checkSession();
+import { CompleteMultipartUploadCommand } from "@aws-sdk/client-s3";
+import { z } from "zod";
+import { prisma } from "@/db/project";
+import { requireUser } from "@/lib/auth.server";
+import { r2 } from "@/server/r2";
+const BUCKET = process.env.R2_BUCKET!;
+const SHARE_LINK_EXPIRATION_DAYS = 7;
+const BodySchema = z.object({
+	fileId: z.string().min(1),
+	encrypted_size: z.number().int().positive(),
+	etags: z
+		.array(
+			z.object({
+				partNumber: z.number().int().positive(),
+				etag: z.string().min(1),
+			}),
+		)
+		.min(1),
+});
+export async function POST({ request }: { request: Request }) {
+	const user = await requireUser(request);
+	const raw = await request.json();
+	const parsed = BodySchema.safeParse(raw);
+	if (!parsed.success) {
+		return Response.json(
+			{ error: "Invalid payload", issues: parsed.error.flatten() },
+			{ status: 422 },
+		);
+	}
+	const { fileId, encrypted_size, etags } = parsed.data;
+	const file = await prisma.file.findUnique({
+		where: { id: fileId },
+		include: { uploadSessions: { where: { status: { not: "COMPLETED" } } } },
 	});
-	return (
-		<Show
-			when={!isChecking()}
-			fallback={
-				<div class="flex h-screen items-center justify-center">Loading...</div>
-			}
-		>
-			{props.children}
-		</Show>
+	if (!file || file.userId !== user.id) {
+		return Response.json({ error: "File not found" }, { status: 404 });
+	}
+	if (file.status !== "PENDING") {
+		return Response.json({ error: "File is not in pending state" }, { status: 409 });
+	}
+	const session = file.uploadSessions[0];
+	if (!session?.multipartUploadId) {
+		return Response.json({ error: "No active upload session" }, { status: 409 });
+	}
+	const sortedParts = [...etags].sort((a, b) => a.partNumber - b.partNumber);
+	const completeCmd = new CompleteMultipartUploadCommand({
+		Bucket: BUCKET,
+		Key: file.r2Key,
+		UploadId: session.multipartUploadId,
+		MultipartUpload: {
+			Parts: sortedParts.map((e) => ({
+				PartNumber: e.partNumber,
+				ETag: e.etag,
+			})),
+		},
+	});
+	await r2.send(completeCmd);
+	const shareLinkExpiresAt = new Date(
+		Date.now() + SHARE_LINK_EXPIRATION_DAYS * 24 * 60 * 60 * 1000,
 	);
+	const [updatedFile, shareLink] = await prisma.$transaction([
+		prisma.file.update({
+			where: { id: fileId },
+			data: {
+				status: "READY",
+				encryptedSize: BigInt(encrypted_size),
+			},
+		}),
+		prisma.uploadSession.update({
+			where: { id: session.id },
+			data: {
+				status: "COMPLETED",
+				completedPartEtags: JSON.stringify(etags),
+				completedAt: new Date(),
+			},
+		}),
+		prisma.shareLink.create({
+			data: {
+				fileId,
+				expiresAt: shareLinkExpiresAt,
+			},
+		}),
+	]);
+	return Response.json({
+		fileId: updatedFile.id,
+		status: updatedFile.status,
+		encryptedSize: updatedFile.encryptedSize?.toString() ?? null,
+		shareLink: {
+			id: shareLink.id,
+			expiresAt: shareLink.expiresAt?.toISOString() ?? null,
+		},
+	});
 }
 ```
 
-## File: src/components/auth/sign-out-button.tsx
+## File: src/routes/api/files/finalize.ts
 ```typescript
-import { useNavigate } from "@solidjs/router";
-import { LogOut } from "lucide-solid";
-import { createSignal } from "solid-js";
-import { authClient } from "@/lib/auth-client";
-interface SignOutButtonProps {
-	class?: string;
-	showIcon?: boolean;
-	label?: string;
+import { z } from "zod";
+import { prisma } from "@/db/project";
+import { requireUser } from "@/lib/auth.server";
+const SHARE_LINK_EXPIRATION_DAYS = 7;
+const BodySchema = z.object({
+	fileId: z.string().min(1),
+	encrypted_size: z.number().int().positive(),
+});
+export async function POST({ request }: { request: Request }) {
+	const user = await requireUser(request);
+	const raw = await request.json();
+	const parsed = BodySchema.safeParse(raw);
+	if (!parsed.success) {
+		return Response.json(
+			{ error: "Invalid payload", issues: parsed.error.flatten() },
+			{ status: 422 },
+		);
+	}
+	const { fileId, encrypted_size } = parsed.data;
+	const file = await prisma.file.findUnique({
+		where: { id: fileId },
+		select: { id: true, userId: true, status: true },
+	});
+	if (!file || file.userId !== user.id) {
+		return Response.json({ error: "File not found" }, { status: 404 });
+	}
+	if (file.status !== "PENDING") {
+		return Response.json({ error: "File is not in pending state" }, { status: 409 });
+	}
+	const hasSession = await prisma.uploadSession.findUnique({
+		where: { fileId },
+		select: { id: true },
+	});
+	if (hasSession) {
+		return Response.json(
+			{ error: "Use /complete-upload for multipart uploads" },
+			{ status: 409 },
+		);
+	}
+	const shareLinkExpiresAt = new Date(
+		Date.now() + SHARE_LINK_EXPIRATION_DAYS * 24 * 60 * 60 * 1000,
+	);
+	const [updatedFile, shareLink] = await prisma.$transaction([
+		prisma.file.update({
+			where: { id: fileId },
+			data: {
+				status: "READY",
+				encryptedSize: BigInt(encrypted_size),
+			},
+		}),
+		prisma.shareLink.create({
+			data: {
+				fileId,
+				expiresAt: shareLinkExpiresAt,
+			},
+		}),
+	]);
+	return Response.json({
+		fileId: updatedFile.id,
+		status: updatedFile.status,
+		encryptedSize: updatedFile.encryptedSize?.toString() ?? null,
+		shareLink: {
+			id: shareLink.id,
+			expiresAt: shareLink.expiresAt?.toISOString() ?? null,
+		},
+	});
 }
-export default function SignOutButton(props: SignOutButtonProps) {
-	const navigate = useNavigate();
-	const [isLoading, setIsLoading] = createSignal(false);
-	const handleSignOut = async () => {
-		setIsLoading(true);
-		try {
-			await authClient.signOut({
-				fetchOptions: {
-					onSuccess: () => {
-						navigate("/auth/login", { replace: true });
-					},
-				},
+```
+
+## File: src/routes/api/files/initiate-upload.ts
+```typescript
+import {
+	CreateMultipartUploadCommand,
+	PutObjectCommand,
+	UploadPartCommand,
+} from "@aws-sdk/client-s3";
+import { z } from "zod";
+import { prisma } from "@/db/project";
+import { requireUser } from "@/lib/auth.server";
+import { r2, getSignedUrl } from "@/server/r2";
+import { r2FileKey } from "@/server/r2-keys";
+const BUCKET = process.env.R2_BUCKET!;
+const PRESIGN_EXPIRES = 60;
+const MULTIPART_BATCH = 5;
+const SINGLE_PUT_THRESHOLD = 50 * 1024 * 1024;
+const DEFAULT_EXPIRATION_HOURS = 168;
+const BodySchema = z.object({
+	file_name: z.string().min(1).max(1024),
+	mime_type: z.string().min(1),
+	original_size: z.number().int().positive(),
+	total_chunks: z.number().int().positive(),
+	iv_base_hash: z.string().min(1),
+});
+export async function POST({ request }: { request: Request }) {
+	const user = await requireUser(request);
+	const raw = await request.json();
+	const parsed = BodySchema.safeParse(raw);
+	if (!parsed.success) {
+		return Response.json(
+			{ error: "Invalid payload", issues: parsed.error.flatten() },
+			{ status: 422 },
+		);
+	}
+	const { file_name, mime_type, original_size, total_chunks, iv_base_hash } =
+		parsed.data;
+	const pref = await prisma.userPreference.findUnique({
+		where: { userId: user.id },
+		select: { defaultExpirationHours: true },
+	});
+	const expirationHours = pref?.defaultExpirationHours ?? DEFAULT_EXPIRATION_HOURS;
+	const expiresAt = new Date(Date.now() + expirationHours * 60 * 60 * 1000);
+	const fileId = crypto.randomUUID();
+	const r2Key = r2FileKey(user.id, fileId);
+	if (original_size < SINGLE_PUT_THRESHOLD) {
+		const command = new PutObjectCommand({
+			Bucket: BUCKET,
+			Key: r2Key,
+			ContentType: mime_type,
+		});
+		const url = await getSignedUrl(r2, command, { expiresIn: PRESIGN_EXPIRES });
+		const presignExpiresAt = new Date(Date.now() + PRESIGN_EXPIRES * 1000);
+		const file = await prisma.file.create({
+			data: {
+				id: fileId,
+				userId: user.id,
+				fileName: file_name,
+				mimeType: mime_type,
+				originalSize: BigInt(original_size),
+				totalChunks: total_chunks,
+				ivBaseHash: iv_base_hash,
+				r2Key,
+				status: "PENDING",
+				expiresAt,
+			},
+		});
+		return Response.json({
+			fileId: file.id,
+			uploadId: null,
+			presignedUrls: [{ partNumber: 1, url, expiresAt: presignExpiresAt.toISOString() }],
+		});
+	}
+	const createCmd = new CreateMultipartUploadCommand({
+		Bucket: BUCKET,
+		Key: r2Key,
+		ContentType: mime_type,
+	});
+	const multipart = await r2.send(createCmd);
+	const file = await prisma.file.create({
+		data: {
+			id: fileId,
+			userId: user.id,
+			fileName: file_name,
+			mimeType: mime_type,
+			originalSize: BigInt(original_size),
+			totalChunks: total_chunks,
+			ivBaseHash: iv_base_hash,
+			r2Key,
+			status: "PENDING",
+			expiresAt,
+		},
+	});
+	const session = await prisma.uploadSession.create({
+		data: {
+			fileId: file.id,
+			multipartUploadId: multipart.UploadId!,
+			status: "INITIATED",
+			totalParts: total_chunks,
+			expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
+		},
+	});
+	const batch = Math.min(MULTIPART_BATCH, total_chunks);
+	const urls = await Promise.all(
+		Array.from({ length: batch }, (_, i) => {
+			const partNumber = i + 1;
+			const cmd = new UploadPartCommand({
+				Bucket: BUCKET,
+				Key: r2Key,
+				PartNumber: partNumber,
+				UploadId: multipart.UploadId!,
 			});
-		} catch (error) {
-			console.error("Sign out failed:", error);
-		} finally {
-			setIsLoading(false);
-		}
-	};
-	return (
-		<button
-			type="button"
-			onClick={handleSignOut}
-			disabled={isLoading()}
-			class={
-				props.class ??
-				"inline-flex items-center gap-2 text-sm font-medium text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50"
-			}
-		>
-			{props.showIcon !== false && <LogOut class="size-4" />}
-			{props.label ?? (isLoading() ? "Signing out..." : "Sign out")}
-		</button>
-	);
-}
-```
-
-## File: src/components/auth/two-factor-verify.tsx
-```typescript
-import { Field } from "@ark-ui/solid/field";
-import { PinInput } from "@ark-ui/solid/pin-input";
-import { Toast, Toaster, createToaster } from "@ark-ui/solid/toast";
-import { useNavigate } from "@solidjs/router";
-import { XIcon } from "lucide-solid";
-import { Show, createEffect, createSignal, For, onCleanup } from "solid-js";
-import { Portal } from "solid-js/web";
-import { authClient } from "@/lib/auth-client";
-interface TwoFactorVerifyProps {
-	redirectTo?: string;
-	onVerified?: () => void;
-}
-type AuthMode = "totp" | "backup";
-export default function TwoFactorVerify({
-	redirectTo = "/dashboard",
-	onVerified,
-}: TwoFactorVerifyProps) {
-	const navigate = useNavigate();
-	const toaster = createToaster({
-		placement: "top",
-		overlap: true,
-		gap: 24,
-	});
-	const [mode, setMode] = createSignal<AuthMode>("totp");
-	const [code, setCode] = createSignal("");
-	const [isLoading, setIsLoading] = createSignal(false);
-	const [error, setError] = createSignal<string | null>(null);
-	const [cooldown, setCooldown] = createSignal(0);
-	const [pinKey, setPinKey] = createSignal(0);
-	createEffect(() => {
-		const remaining = cooldown();
-		if (remaining <= 0) return;
-		const timer = setTimeout(() => {
-			setCooldown((current) => Math.max(0, current - 1));
-		}, 1000);
-		onCleanup(() => clearTimeout(timer));
-	});
-	const validateInput = (): boolean => {
-		if (mode() === "totp") {
-			return /^\d{6}$/.test(code());
-		}
-		return code().trim().length >= 8;
-	};
-	const handleSubmit = async (e: SubmitEvent) => {
-		e.preventDefault();
-		if (cooldown() > 0) return;
-		if (!validateInput()) {
-			setError(
-				mode() === "totp"
-					? "Please enter a valid 6-digit code."
-					: "Please enter a valid backup code.",
+			return getSignedUrl(r2, cmd, { expiresIn: PRESIGN_EXPIRES }).then(
+				(url) => ({
+					partNumber,
+					url,
+					expiresAt: new Date(Date.now() + PRESIGN_EXPIRES * 1000).toISOString(),
+				}),
 			);
-			return;
-		}
-		setIsLoading(true);
-		setError(null);
-		try {
-			let response: { error?: { message?: string } | null } | undefined;
-			if (mode() === "totp") {
-				response = await authClient.twoFactor.verifyTotp({
-					code: code(),
-					trustDevice: false,
-				});
-			} else {
-				response = await authClient.twoFactor.verifyBackupCode({
-					code: code(),
-					trustDevice: false,
-				});
-			}
-			if (response?.error) {
-				throw new Error(response.error.message ?? "Verification failed");
-			}
-			toaster.create({
-				title: "Verification successful!",
-				type: "success",
-			});
-			onVerified?.();
-			navigate(redirectTo, { replace: true });
-		} catch (err: unknown) {
-			const message =
-				err instanceof Error ? err.message : "Invalid code. Please try again.";
-			setError(message);
-			setCooldown(5);
-			setCode("");
-			setPinKey((k) => k + 1);
-			toaster.create({
-				title: message,
-				type: "error",
-			});
-		} finally {
-			setIsLoading(false);
+		}),
+	);
+	return Response.json({
+		fileId: file.id,
+		uploadId: session.id,
+		presignedUrls: urls,
+	});
+}
+```
+
+## File: src/components/upload/DropZone.tsx
+```typescript
+import { FileUpload } from "@ark-ui/solid/file-upload";
+import { File as FileIcon, Lock, Upload, X } from "lucide-solid";
+import { type Component, onCleanup, onMount, Show } from "solid-js";
+import { isServer } from "solid-js/web";
+import type { FileMetadata } from "@/types/upload";
+import { formatFileSize } from "@/utils/upload";
+interface DropZoneProps {
+	onFileSelect: (file: File) => void;
+	selectedFile: FileMetadata | null;
+	onReset: () => void;
+	disabled?: boolean;
+}
+const DropZone: Component<DropZoneProps> = (props) => {
+	const handleFileAccept = (details: { files: File[] }) => {
+		if (details.files.length > 0) {
+			props.onFileSelect(details.files[0]);
 		}
 	};
-	const toggleMode = () => {
-		setMode((prev) => (prev === "totp" ? "backup" : "totp"));
-		setCode("");
-		setPinKey((k) => k + 1);
-		setError(null);
+	const handlePaste = (e: ClipboardEvent) => {
+		if (props.disabled) return;
+		const items = e.clipboardData?.items;
+		if (!items) return;
+		for (const item of items) {
+			if (item.kind === "file") {
+				const file = item.getAsFile();
+				if (file) {
+					props.onFileSelect(file);
+					break;
+				}
+			}
+		}
 	};
-	const disabled = () => isLoading() || cooldown() > 0;
-	const isTotp = () => mode() === "totp";
+	onMount(() => {
+		if (isServer) return;
+		document.addEventListener("paste", handlePaste);
+	});
+	onCleanup(() => {
+		if (isServer) return;
+		document.removeEventListener("paste", handlePaste);
+	});
 	return (
-		<div class="space-y-4">
-			<form onSubmit={handleSubmit} class="space-y-4">
-				<Field.Root invalid={error() !== null} disabled={disabled()}>
-					<div class="space-y-3">
-						<Field.Label class="block text-center text-sm font-medium">
-							{isTotp() ? "Authenticator code" : "Backup code"}
-						</Field.Label>
-						{isTotp() ? (
-							<Show keyed when={pinKey() + 1}>
-								<PinInput.Root
-									onValueChange={({ value }) => {
-										setCode(value.join(""));
-										setError(null);
-									}}
-									count={6}
-									otp
-									type="numeric"
-									disabled={disabled()}
-									invalid={error() !== null}
-									aria-label="Authenticator code"
-								>
-									<PinInput.Control class="flex justify-center gap-2">
-										<For each={Array.from({ length: 6 }, (_, index) => index)}>
-											{(index) => (
-												<PinInput.Input
-													index={index}
-													class="h-12 w-12 rounded-md border border-input bg-background text-center text-lg font-semibold shadow-sm outline-none transition focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
-												/>
-											)}
-										</For>
-									</PinInput.Control>
-									<PinInput.HiddenInput />
-								</PinInput.Root>
-							</Show>
-						) : (
-							<Field.Input
-								id="code"
-								type="text"
-								autocomplete="off"
-								maxlength={24}
-								value={code()}
-								onInput={(e) => {
-									setCode(e.currentTarget.value);
-									setError(null);
-								}}
-								disabled={disabled()}
-								placeholder="8+ character backup code"
-								class="w-full rounded-md border border-input bg-background px-3 py-2 font-mono text-sm shadow-sm outline-none transition focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2 disabled:cursor-not-allowed disabled:opacity-50"
+		<FileUpload.Root
+			maxFiles={1}
+			disabled={props.disabled}
+			onFileAccept={handleFileAccept}
+		>
+			<FileUpload.Dropzone
+				class="relative h-80 rounded-xl border-2 border-dashed border-border bg-card
+               transition-all duration-300 hover:border-primary hover:bg-accent/30
+               group cursor-pointer overflow-hidden"
+			>
+				<Show when={props.selectedFile} fallback={<DropZoneEmpty />}>
+					<DropZoneSelected
+						file={props.selectedFile!}
+						onReset={props.onReset}
+					/>
+				</Show>
+			</FileUpload.Dropzone>
+			<FileUpload.HiddenInput />
+		</FileUpload.Root>
+	);
+};
+const DropZoneEmpty: Component = () => (
+	<div class="flex flex-col items-center justify-center h-full relative z-10 p-6">
+		<div
+			class="w-20 h-20 rounded-full bg-muted flex items-center justify-center mb-6
+             group-hover:scale-110 group-hover:bg-primary/10 transition-all
+             shadow-lg border border-border"
+		>
+			<Upload class="w-10 h-10 text-primary" stroke-width={1.5} />
+		</div>
+		<h3 class="font-heading text-xl text-foreground mb-2 text-center">
+			Drop files here or click to browse
+		</h3>
+		<p class="text-sm text-muted-foreground text-center max-w-md leading-relaxed">
+			Supports all file types up to 50GB. <br />
+			You can also paste a file from your clipboard (Ctrl+V / Cmd+V). <br />
+			Files are zero-knowledge encrypted locally before transfer.
+		</p>
+	</div>
+);
+interface DropZoneSelectedProps {
+	file: FileMetadata;
+	onReset: () => void;
+}
+const DropZoneSelected: Component<DropZoneSelectedProps> = (props) => (
+	<div class="absolute inset-0 bg-card/95 backdrop-blur-sm flex flex-col p-6 z-20">
+		<div class="flex justify-between items-center mb-4 border-b border-border pb-4">
+			<h4 class="text-sm font-semibold uppercase tracking-wider text-foreground">
+				Selected Files (1)
+			</h4>
+			<button
+				class="text-muted-foreground hover:text-destructive transition-colors
+               p-1 hover:bg-destructive/10 rounded"
+				onClick={(e) => {
+					e.stopPropagation();
+					props.onReset();
+				}}
+				aria-label="Remove selected file"
+			>
+				<X class="w-5 h-5" />
+			</button>
+		</div>
+		<div class="flex items-center gap-4 bg-muted p-4 rounded-lg border border-border">
+			<FileIcon class="w-8 h-8 text-primary shrink-0" />
+			<div class="flex-1 min-w-0">
+				<p class="text-sm font-medium text-foreground truncate">
+					{props.file.name}
+				</p>
+				<p class="text-xs text-muted-foreground mt-1">
+					{formatFileSize(props.file.size)}
+				</p>
+			</div>
+			<Lock class="w-4 h-4 text-muted-foreground shrink-0" />
+		</div>
+	</div>
+);
+export default DropZone;
+```
+
+## File: src/components/upload/SecureUpload.tsx
+```typescript
+import { type Component, createSignal, Show } from "solid-js";
+import type {
+	FileMetadata,
+	Phase,
+	SecuritySettings,
+	ShareData,
+} from "@/types/upload";
+import { generateShareData } from "@/utils/upload";
+import DropZone from "./DropZone";
+import SettingsPanel from "./SettingsPanel";
+import UploadProgress from "./UploadProgress";
+import UploadSuccess from "./UploadSuccess";
+const DEFAULT_SETTINGS: SecuritySettings = {
+	expiration: "24h",
+	oneTimeDownload: false,
+	maxDownloads: 10,
+};
+const SecureUpload: Component = () => {
+	const [phase, setPhase] = createSignal<Phase>("idle");
+	const [selectedFile, setSelectedFile] = createSignal<FileMetadata | null>(
+		null,
+	);
+	const [uploadProgress, setUploadProgress] = createSignal(0);
+	const [shareData, setShareData] = createSignal<ShareData | null>(null);
+	const [settings, setSettings] =
+		createSignal<SecuritySettings>(DEFAULT_SETTINGS);
+	const uploadedSize = () => {
+		const file = selectedFile();
+		if (!file) return 0;
+		return Math.floor((file.size * uploadProgress()) / 100);
+	};
+	const handleFileSelect = (file: File) => {
+		setSelectedFile({ name: file.name, size: file.size });
+		setPhase("selecting");
+	};
+	const handleReset = () => {
+		setSelectedFile(null);
+		setUploadProgress(0);
+		setShareData(null);
+		setPhase("idle");
+	};
+	const handleUpload = () => {
+		if (!selectedFile()) return;
+		setPhase("uploading");
+		setUploadProgress(0);
+		const interval = setInterval(() => {
+			setUploadProgress((prev) => {
+				if (prev >= 100) {
+					clearInterval(interval);
+					setShareData(generateShareData());
+					setPhase("success");
+					return 100;
+				}
+				const remaining = 100 - prev;
+				const increment = Math.max(
+					1,
+					Math.min(remaining, Math.floor(Math.random() * 8) + 2),
+				);
+				return prev + increment;
+			});
+		}, 250);
+	};
+	const handleCancel = () => {
+		handleReset();
+	};
+	const isSettingsPanelLocked = () =>
+		phase() === "uploading" || phase() === "success";
+	return (
+		<>
+			<div class="flex-1 overflow-y-auto p-6 lg:p-8 max-w-7xl mx-auto w-full">
+				<PageHeader />
+				<div class="grid grid-cols-1 lg:grid-cols-12 gap-8">
+					{}
+					<div class="lg:col-span-8 flex flex-col gap-6">
+						<Show when={phase() === "idle" || phase() === "selecting"}>
+							<DropZone
+								onFileSelect={handleFileSelect}
+								selectedFile={selectedFile()}
+								onReset={handleReset}
+								disabled={phase() === "uploading"}
 							/>
-						)}
+						</Show>
+						<Show when={phase() === "uploading"}>
+							<UploadProgress
+								fileName={selectedFile()?.name ?? ""}
+								progress={uploadProgress()}
+								uploadedSize={uploadedSize()}
+								totalSize={selectedFile()?.size ?? 0}
+								onCancel={handleCancel}
+							/>
+						</Show>
+						<Show when={phase() === "success" && shareData() !== null}>
+							<UploadSuccess
+								shareData={shareData()!}
+								onNewUpload={handleReset}
+								onViewDetails={() => {
+									console.log("Navigate to file details");
+								}}
+							/>
+						</Show>
 					</div>
-					{error() && (
-						<Field.ErrorText class="rounded-md border border-red-100 bg-red-50 p-3 text-sm text-red-600">
-							{error()}
-						</Field.ErrorText>
-					)}
-				</Field.Root>
-				<button
-					type="submit"
-					class="inline-flex h-10 w-full items-center justify-center rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground shadow-sm transition hover:opacity-90 disabled:pointer-events-none disabled:opacity-50"
-					disabled={disabled() || code().length === 0}
-				>
-					{isLoading()
-						? "Verifying..."
-						: cooldown() > 0
-							? `Try again in ${cooldown()}s`
-							: "Verify code"}
-				</button>
-			</form>
-			<div class="relative py-2">
-				<div class="absolute inset-0 flex items-center">
-					<div class="w-full border-t" />
+					{}
+					<div class="lg:col-span-4">
+						<SettingsPanel
+							settings={settings()}
+							onSettingsChange={setSettings}
+							onUpload={handleUpload}
+							disabled={isSettingsPanelLocked()}
+							canUpload={phase() === "selecting"}
+						/>
+					</div>
 				</div>
-				<div class="relative flex justify-center text-xs uppercase">
-					<span class="bg-background px-2 text-muted-foreground">
-						Having trouble?
+			</div>
+		</>
+	);
+};
+const PageHeader: Component = () => (
+	<div class="mb-8">
+		<h2 class="font-heading font-bold text-foreground tracking-tight">
+			Secure Upload
+		</h2>
+		<p class="text-sm text-muted-foreground mt-3 max-w-2xl leading-relaxed">
+			End-to-end encrypted file sharing for sensitive enterprise data. Files are
+			encrypted client-side before upload.
+		</p>
+	</div>
+);
+export default SecureUpload;
+```
+
+## File: src/components/upload/SettingsPanel.tsx
+```typescript
+import { NumberInput } from "@ark-ui/solid/number-input";
+import { Select, createListCollection } from "@ark-ui/solid/select";
+import { Switch } from "@ark-ui/solid/switch";
+import {
+	ChevronDownIcon,
+	ChevronUpIcon,
+	ChevronsUpDownIcon,
+	Lock,
+	Settings,
+} from "lucide-solid";
+import { type Component, Index } from "solid-js";
+import { Portal } from "solid-js/web";
+import type { SecuritySettings } from "@/types/upload";
+interface SettingsPanelProps {
+	settings: SecuritySettings;
+	onSettingsChange: (settings: SecuritySettings) => void;
+	onUpload: () => void;
+	disabled?: boolean;
+	canUpload?: boolean;
+}
+const SettingsPanel: Component<SettingsPanelProps> = (props) => {
+	const updateSetting = <K extends keyof SecuritySettings>(
+		key: K,
+		value: SecuritySettings[K],
+	) => {
+		props.onSettingsChange({ ...props.settings, [key]: value });
+	};
+	return (
+		<div class="bg-card rounded-xl border border-border p-6 sticky top-24 shadow-sm">
+			<h3 class="font-heading text-xl text-foreground mb-6 flex items-center gap-2.5">
+				<Settings class="w-5 h-5 text-muted-foreground" />
+				Security Settings
+			</h3>
+			<div class="flex flex-col gap-6">
+				<ExpirationField
+					value={props.settings.expiration}
+					disabled={props.disabled}
+					onChange={(v) => updateSetting("expiration", v)}
+				/>
+				<hr class="border-border/50" />
+				<OneTimeDownloadField
+					value={props.settings.oneTimeDownload}
+					disabled={props.disabled}
+					onChange={(v) => updateSetting("oneTimeDownload", v)}
+				/>
+				<hr class="border-border/50" />
+				<MaxDownloadsField
+					value={props.settings.maxDownloads}
+					disabled={props.disabled}
+					onChange={(v) => updateSetting("maxDownloads", v)}
+				/>
+			</div>
+			<UploadAction
+				onUpload={props.onUpload}
+				disabled={props.disabled}
+				canUpload={props.canUpload}
+			/>
+		</div>
+	);
+};
+interface ExpirationFieldProps {
+	value: string;
+	disabled?: boolean;
+	onChange: (value: string) => void;
+}
+const expirationOptions = createListCollection({
+	items: [
+		{ label: "24 Hours", value: "24h" },
+		{ label: "7 Days", value: "7d" },
+		{ label: "30 Days", value: "30d" },
+		{ label: "Custom Date...", value: "custom" },
+	],
+});
+const ExpirationField: Component<ExpirationFieldProps> = (props) => (
+	<div>
+		<Select.Root
+			collection={expirationOptions}
+			value={[props.value]}
+			disabled={props.disabled}
+			onValueChange={(details) => props.onChange(details.value[0])}
+		>
+			<Select.Label class="text-sm font-semibold text-foreground block mb-2">
+				Expiration Time
+			</Select.Label>
+			<Select.Control class="relative">
+				<Select.Trigger
+					class="w-full bg-muted border border-border rounded-lg px-4 py-2.5 text-sm text-foreground
+                 focus:outline-none focus:ring-2 focus:ring-primary/20
+                 focus:border-primary transition-colors cursor-pointer
+                 hover:border-primary/50 disabled:opacity-50 disabled:cursor-not-allowed
+                 flex items-center justify-between"
+					aria-label="Select expiration time"
+				>
+					<Select.ValueText placeholder="Select expiration" />
+					<Select.Indicator>
+						<ChevronsUpDownIcon class="w-4 h-4 text-muted-foreground" />
+					</Select.Indicator>
+				</Select.Trigger>
+			</Select.Control>
+			<Portal>
+				<Select.Positioner>
+					<Select.Content
+						class="bg-muted border border-border rounded-lg shadow-lg p-1 z-50
+                   min-w-[var(--reference-width)] max-h-60 overflow-y-auto"
+					>
+						<Index each={expirationOptions.items}>
+							{(item) => (
+								<Select.Item
+									class="px-4 py-2 text-sm text-foreground rounded cursor-pointer
+                         hover:bg-accent/50 data-[highlighted]:bg-accent/50
+                         data-[state=checked]:text-primary flex items-center justify-between"
+									item={item()}
+								>
+									<Select.ItemText>{item().label}</Select.ItemText>
+									<Select.ItemIndicator class="text-primary">
+										✓
+									</Select.ItemIndicator>
+								</Select.Item>
+							)}
+						</Index>
+					</Select.Content>
+				</Select.Positioner>
+			</Portal>
+			<Select.HiddenSelect />
+		</Select.Root>
+	</div>
+);
+interface OneTimeDownloadFieldProps {
+	value: boolean;
+	disabled?: boolean;
+	onChange: (value: boolean) => void;
+}
+const OneTimeDownloadField: Component<OneTimeDownloadFieldProps> = (props) => (
+	<Switch.Root
+		checked={props.value}
+		disabled={props.disabled}
+		onCheckedChange={(details) => props.onChange(details.checked)}
+		class="flex items-start justify-between gap-4 group"
+	>
+		<div class="flex-1">
+			<Switch.Label
+				class="text-sm font-semibold text-foreground cursor-pointer
+             group-hover:text-primary transition-colors block"
+			>
+				One-Time Download
+			</Switch.Label>
+			<p class="text-xs text-muted-foreground mt-1 leading-relaxed">
+				Destroys the file immediately after one view.
+			</p>
+		</div>
+		<Switch.Control
+			class="relative w-10 h-6 bg-muted rounded-full border border-border
+             transition-colors duration-200 mt-0.5 shrink-0
+             data-[state=checked]:bg-primary data-[state=checked]:border-primary
+             data-[disabled]:opacity-50 data-[disabled]:cursor-not-allowed"
+		>
+			<Switch.Thumb
+				class="absolute top-1 left-1 w-4 h-4 bg-muted-foreground rounded-full shadow-sm
+               transition-transform duration-200
+               data-[state=checked]:translate-x-4 data-[state=checked]:bg-primary-foreground"
+			/>
+		</Switch.Control>
+		<Switch.HiddenInput />
+	</Switch.Root>
+);
+interface MaxDownloadsFieldProps {
+	value: number | null;
+	disabled?: boolean;
+	onChange: (value: number | null) => void;
+}
+const MaxDownloadsField: Component<MaxDownloadsFieldProps> = (props) => (
+	<div>
+		<NumberInput.Root
+			min={1}
+			max={100}
+			value={props.value?.toString() ?? ""}
+			disabled={props.disabled}
+			onValueChange={(details) => {
+				const num = parseInt(details.value, 10);
+				props.onChange(Number.isNaN(num) ? null : num);
+			}}
+			allowMouseWheel
+			clampValueOnBlur
+		>
+			<NumberInput.Label class="text-sm font-semibold text-foreground block mb-2">
+				Max Download Limit
+			</NumberInput.Label>
+			<NumberInput.Control class="relative">
+				<NumberInput.Input
+					class="w-full bg-muted border border-border rounded-lg px-4 py-2.5 text-sm text-foreground
+                 focus:outline-none focus:ring-2 focus:ring-primary/20 focus:border-primary
+                 transition-colors hover:border-primary/50
+                 disabled:opacity-50 disabled:cursor-not-allowed"
+					placeholder="Unlimited"
+				/>
+				<div class="absolute right-1 top-1 bottom-1 flex flex-col">
+					<NumberInput.IncrementTrigger
+						class="flex items-center justify-center w-6 h-full rounded
+                   text-muted-foreground hover:text-foreground hover:bg-muted
+                   transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+					>
+						<ChevronUpIcon class="w-3.5 h-3.5" />
+					</NumberInput.IncrementTrigger>
+					<NumberInput.DecrementTrigger
+						class="flex items-center justify-center w-6 h-full rounded
+                   text-muted-foreground hover:text-foreground hover:bg-muted
+                   transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+					>
+						<ChevronDownIcon class="w-3.5 h-3.5" />
+					</NumberInput.DecrementTrigger>
+				</div>
+			</NumberInput.Control>
+		</NumberInput.Root>
+		<p class="text-xs text-muted-foreground mt-2 text-right">
+			Leave empty for unlimited within expiration.
+		</p>
+	</div>
+);
+interface UploadActionProps {
+	onUpload: () => void;
+	disabled?: boolean;
+	canUpload?: boolean;
+}
+const UploadAction: Component<UploadActionProps> = (props) => (
+	<div class="mt-8 pt-6 border-t border-border/50">
+		<button
+			class="w-full bg-primary text-primary-foreground py-3 rounded-lg text-sm font-semibold
+             hover:bg-primary/90 transition-all flex items-center justify-center gap-2
+             disabled:opacity-50 disabled:cursor-not-allowed disabled:hover:bg-primary
+             relative overflow-hidden group shadow-sm hover:shadow-md
+             active:scale-[0.98] transform duration-150"
+			onClick={props.onUpload}
+			disabled={props.disabled || !props.canUpload}
+			title={!props.canUpload ? "Select a file first" : "Encrypt and upload"}
+			aria-label="Start secure upload"
+		>
+			{}
+			<div
+				class="absolute inset-0 bg-linear-to-r from-transparent via-white/20 to-transparent
+               -translate-x-full group-hover:translate-x-full
+               transition-transform duration-1000 ease-in-out"
+			/>
+			<Lock class="w-4 h-4" />
+			Start Secure Upload
+		</button>
+	</div>
+);
+export default SettingsPanel;
+```
+
+## File: src/components/upload/UploadProgress.tsx
+```typescript
+import { Progress } from "@ark-ui/solid/progress";
+import { Shield } from "lucide-solid";
+import { type Component, Show } from "solid-js";
+import { formatFileSize, getPhaseLabel } from "@/utils/upload";
+interface UploadProgressProps {
+	fileName: string;
+	progress: number;
+	uploadedSize: number;
+	totalSize: number;
+	onCancel: () => void;
+}
+const UploadProgress: Component<UploadProgressProps> = (props) => (
+	<div class="bg-card rounded-xl p-6 border border-border flex flex-col gap-4 shadow-sm">
+		<ProgressHeader fileName={props.fileName} progress={props.progress} />
+		<Progress.Root value={props.progress} max={100}>
+			<Progress.Track class="w-full h-2 bg-muted rounded-full overflow-hidden">
+				<Progress.Range class="h-full bg-primary rounded-full transition-all duration-300 ease-out" />
+			</Progress.Track>
+		</Progress.Root>
+		<ProgressFooter
+			uploadedSize={props.uploadedSize}
+			totalSize={props.totalSize}
+			onCancel={props.onCancel}
+		/>
+	</div>
+);
+const ProgressHeader: Component<{ fileName: string; progress: number }> = (
+	props,
+) => (
+	<div class="flex justify-between items-start gap-4">
+		<div class="flex-1 min-w-0">
+			<h4 class="text-sm font-semibold text-foreground flex items-center gap-2">
+				<Show when={props.progress > 30}>
+					<Shield class="w-4 h-4 text-primary shrink-0" />
+				</Show>
+				<span>{getPhaseLabel(props.progress)}</span>
+			</h4>
+			<p class="text-xs text-muted-foreground mt-1 truncate">
+				{props.fileName}
+			</p>
+		</div>
+		<span class="text-sm font-bold text-primary tabular-nums">
+			{props.progress}%
+		</span>
+	</div>
+);
+interface ProgressFooterProps {
+	uploadedSize: number;
+	totalSize: number;
+	onCancel: () => void;
+}
+const ProgressFooter: Component<ProgressFooterProps> = (props) => (
+	<div class="flex justify-between items-center">
+		<p class="text-xs text-muted-foreground font-medium tabular-nums">
+			{formatFileSize(props.uploadedSize)} / {formatFileSize(props.totalSize)}
+		</p>
+		<button
+			class="text-xs font-semibold text-destructive hover:text-destructive/80
+             transition-colors px-2 py-1 rounded hover:bg-destructive/10"
+			onClick={props.onCancel}
+		>
+			Cancel
+		</button>
+	</div>
+);
+export default UploadProgress;
+```
+
+## File: src/components/upload/UploadSuccess.tsx
+```typescript
+import { CircleCheck, Copy, Info, Key, Plus } from "lucide-solid";
+import { type Component, createSignal, Show } from "solid-js";
+import type { ShareData } from "@/types/upload";
+interface UploadSuccessProps {
+	shareData: ShareData;
+	onNewUpload: () => void;
+	onViewDetails?: () => void;
+}
+const UploadSuccess: Component<UploadSuccessProps> = (props) => (
+	<div
+		class="bg-card rounded-xl p-8 border border-secondary/30
+           relative overflow-hidden shadow-sm"
+	>
+		{}
+		<div class="absolute top-0 left-0 w-1 h-full bg-primary" />
+		<div class="flex flex-col sm:flex-row items-start gap-6">
+			<SuccessIcon />
+			<div class="flex-1 min-w-0 w-full">
+				<h3 class="font-heading text-xl text-foreground mb-2">
+					Upload Complete &amp; Secured
+				</h3>
+				<p class="text-sm text-muted-foreground mb-6 leading-relaxed">
+					File has been encrypted and stored in the secure vault. Share the link
+					and key below.
+				</p>
+				<ShareLinkBox shareData={props.shareData} />
+				<div class="flex justify-between items-center mt-3">
+					<span class="text-xs text-primary flex items-center gap-1.5 font-medium">
+						<Info class="w-3.5 h-3.5" />
+						End-to-end decryption key included in URL
 					</span>
 				</div>
 			</div>
-			<button
-				type="button"
-				onClick={toggleMode}
-				class="inline-flex h-10 w-full items-center justify-center rounded-md border border-transparent bg-transparent px-4 py-2 text-sm font-medium text-foreground transition hover:bg-accent hover:text-accent-foreground"
+		</div>
+		<SuccessActions
+			onNewUpload={props.onNewUpload}
+			onViewDetails={props.onViewDetails}
+		/>
+	</div>
+);
+const SuccessIcon: Component = () => (
+	<div
+		class="w-12 h-12 rounded-full bg-primary/10 flex items-center justify-center
+           shrink-0 border border-primary/20"
+	>
+		<CircleCheck class="w-6 h-6 text-primary" />
+	</div>
+);
+interface ShareLinkBoxProps {
+	shareData: ShareData;
+}
+const ShareLinkBox: Component<ShareLinkBoxProps> = (props) => {
+	const [copied, setCopied] = createSignal(false);
+	const copyLink = async () => {
+		try {
+			await navigator.clipboard.writeText(
+				`${props.shareData.url}#key=${props.shareData.key}`,
+			);
+			setCopied(true);
+			setTimeout(() => setCopied(false), 2000);
+		} catch (err) {
+			console.error("Failed to copy to clipboard:", err);
+		}
+	};
+	return (
+		<div
+			class="bg-muted rounded-lg border border-border p-4 text-sm break-all
+             relative group flex flex-col sm:flex-row sm:items-center gap-2 sm:gap-3"
+		>
+			<span class="text-foreground font-mono">{props.shareData.url}</span>
+			<span
+				class="text-primary bg-primary/10 px-2 py-1 rounded-full border border-primary/20
+               inline-flex items-center gap-1.5 text-xs font-mono whitespace-nowrap w-fit"
+				title="End-to-end decryption key"
 			>
-				{isTotp()
-					? "Use a backup code instead"
-					: "Use authenticator app instead"}
+				#key={props.shareData.key}
+				<Key class="w-3 h-3" />
+			</span>
+			<button
+				class="sm:absolute sm:right-3 sm:top-1/2 sm:-translate-y-1/2
+               text-muted-foreground hover:text-primary transition-all
+               bg-card p-1.5 rounded border border-border hover:border-primary
+               flex items-center gap-1.5 ml-auto sm:ml-0 shadow-sm"
+				onClick={copyLink}
+				title="Copy full link to clipboard"
+				aria-label="Copy share link"
+			>
+				<Show when={copied()} fallback={<Copy class="w-4 h-4" />}>
+					<span class="text-xs font-bold text-primary px-1">Copied!</span>
+				</Show>
 			</button>
-			<Portal>
-				<Toaster toaster={toaster}>
-					{(toast) => (
-						<Toast.Root class="flex flex-col gap-1 items-start relative p-4 pr-10 rounded-lg bg-background border shadow-lg">
-							<Toast.Title class="text-sm font-medium">
-								{toast().title}
-							</Toast.Title>
-							<Toast.CloseTrigger class="absolute top-1 right-1 p-1 rounded-md hover:bg-muted transition-colors">
-								<XIcon class="size-4" />
-							</Toast.CloseTrigger>
-						</Toast.Root>
-					)}
-				</Toaster>
-			</Portal>
 		</div>
 	);
-}
-```
-
-## File: src/db/auth/index.ts
-```typescript
-import "dotenv/config";
-import { PrismaPg } from "@prisma/adapter-pg";
-import { PrismaClient } from "@generated/auth/client";
-const connectionString = process.env.DATABASE_AUTH_URL;
-if (!connectionString) {
-	throw new Error("Missing environment variable: DATABASE_AUTH_URL");
-}
-type PrismaGlobal = {
-	prismaAuth?: PrismaClient;
 };
-const globalForPrisma = globalThis as typeof globalThis & PrismaGlobal;
-const adapter = new PrismaPg({ connectionString });
-export const prisma =
-	globalForPrisma.prismaAuth ??
-	new PrismaClient({
-		adapter,
-	});
-if (process.env.NODE_ENV !== "production") {
-	globalForPrisma.prismaAuth = prisma;
+interface SuccessActionsProps {
+	onNewUpload: () => void;
+	onViewDetails?: () => void;
 }
-```
-
-## File: src/lib/auth-client.ts
-```typescript
-import { emailOTPClient, twoFactorClient } from "better-auth/client/plugins";
-import { createAuthClient } from "better-auth/solid";
-export const authClient = createAuthClient({
-  baseURL:
-    typeof window === "undefined" ? process.env.BETTER_AUTH_URL : undefined,
-  plugins: [
-    twoFactorClient({
-      onTwoFactorRedirect() {
-        localStorage.setItem("pending2FA", "true");
-        window.location.href = "/auth/verify-2fa";
-      },
-    }),
-    emailOTPClient(),
-  ],
-});
-```
-
-## File: src/lib/auth.server.ts
-```typescript
-import { getRequestEvent } from "solid-js/web";
-import { z } from "zod";
-import type { AuthUser, UserRole } from "@/types/auth";
-import { auth } from "./auth";
-const UserRoleSchema = z
-	.enum(["employee", "admin", "superadmin"])
-	.catch("employee");
-const ROLE_LEVEL: Record<UserRole, number> = {
-	employee: 0,
-	admin: 1,
-	superadmin: 2,
-};
-type SessionHeaderSource = Request | Headers;
-function buildSessionHeaders(source?: SessionHeaderSource): Headers | null {
-	if (source instanceof Headers) {
-		return new Headers(source);
-	}
-	if (source instanceof Request) {
-		return new Headers(source.headers);
-	}
-	const event = getRequestEvent();
-	if (!event) return null;
-	return new Headers(event.request.headers);
-}
-export async function getSession(source?: SessionHeaderSource) {
-	const headers = buildSessionHeaders(source);
-	if (!headers) return null;
-	return auth.api.getSession({ headers });
-}
-export async function getCurrentUser(
-	source?: SessionHeaderSource,
-): Promise<AuthUser | null> {
-	const session = await getSession(source);
-	if (!session?.user) return null;
-	const u = session.user;
-	return {
-		id: u.id,
-		email: u.email,
-		name: u.name,
-		image: (u.image as string | null | undefined) ?? null,
-		role: UserRoleSchema.parse(u.role),
-		departmentId: (u.departmentId as string | null | undefined) ?? null,
-		emailVerified: u.emailVerified ?? false,
-		twoFactorEnabled: u.twoFactorEnabled ?? false,
-		passwordChanged: (u.passwordChanged as boolean | undefined) ?? false,
-	};
-}
-export async function requireUser(
-	source?: SessionHeaderSource,
-): Promise<AuthUser> {
-	const user = await getCurrentUser(source);
-	if (!user) throw new Error("UNAUTHORIZED");
-	return user;
-}
-export async function requireRole(
-	minRole: UserRole,
-	source?: SessionHeaderSource,
-): Promise<AuthUser> {
-	const user = await requireUser(source);
-	if (ROLE_LEVEL[user.role] < ROLE_LEVEL[minRole]) {
-		throw new Error("FORBIDDEN");
-	}
-	return user;
-}
-```
-
-## File: src/lib/auth.ts
-```typescript
-import { betterAuth } from "better-auth";
-import { prismaAdapter } from "better-auth/adapters/prisma";
-import { admin as adminPlugin, emailOTP, twoFactor } from "better-auth/plugins";
-import { prisma } from "@/db/auth";
-import { sendEmail } from "@/services/email";
-import { renderDeleteVerificationEmail } from "@/services/email-templates";
-import { ac, adminRole, employeeRole, superadminRole } from "./permissions";
-export const auth = betterAuth({
-	trustedOrigins: ["https://send.digitalcovet.com", "http://localhost:3000", "http://localhost:5173"],
-	database: prismaAdapter(prisma, {
-		provider: "postgresql",
-	}),
-	emailAndPassword: {
-		enabled: true,
-		requireEmailVerification: true,
-		sendResetPassword: async ({ user, url }, _request) => {
-			try {
-				await sendEmail({
-					to: user.email,
-					subject: "Reset your password",
-					text: `Click the link to reset your password: ${url}`,
-				});
-			} catch (error) {
-				console.error(
-					"[Auth Hook] Failed to send reset password email:",
-					error instanceof Error ? error.message : error,
-				);
-				throw new Error("Failed to send reset password email.");
-			}
-		},
-	},
-	emailVerification: {
-		sendOnSignUp: true,
-		sendOnSignIn: true,
-		sendVerificationEmail: async ({ user, url }, _request) => {
-			try {
-				await sendEmail({
-					to: user.email,
-					subject: "Verify your email address",
-					text: `Click the link to verify your email: ${url}`,
-				});
-			} catch (error) {
-				console.error(
-					"[Auth Hook] Failed to send verification email:",
-					error instanceof Error ? error.message : error,
-				);
-				throw new Error("Failed to send verification email.");
-			}
-		},
-	},
-	user: {
-		additionalFields: {
-			departmentId: {
-				type: "string",
-				required: false,
-				defaultValue: null,
-			},
-			passwordChanged: {
-				type: "boolean",
-				required: false,
-				defaultValue: false,
-			},
-		},
-	},
-	plugins: [
-		twoFactor({
-			issuer: "Digital Covet",
-		}),
-		adminPlugin({
-			defaultRole: "employee",
-			ac,
-			roles: {
-				superadmin: superadminRole,
-				admin: adminRole,
-				employee: employeeRole,
-			},
-		}),
-		emailOTP({
-			async sendVerificationOTP({ email, otp, type }) {
-				const username = email.split("@")[0];
-				const { html, text } = renderDeleteVerificationEmail({
-					username,
-					otp,
-				});
-				const subject =
-					type === "sign-in"
-						? "Your verification code"
-						: type === "email-verification"
-							? "Verify your email"
-							: "Reset your password";
-				try {
-					await sendEmail({
-						to: email,
-						subject,
-						text,
-						html,
-					});
-				} catch (error) {
-					console.error(
-						"[Auth Hook] Failed to send OTP email:",
-						error instanceof Error ? error.message : error,
-					);
-					throw new Error("Failed to send verification code.");
-				}
-			},
-		}),
-	],
-});
+const SuccessActions: Component<SuccessActionsProps> = (props) => (
+	<div class="mt-8 flex flex-wrap gap-3 border-t border-border/50 pt-6">
+		<button
+			class="bg-primary text-primary-foreground px-6 py-2.5 rounded-lg text-sm font-semibold
+             hover:bg-primary/90 transition-colors flex items-center gap-2
+             shadow-sm hover:shadow-md active:scale-95 transform duration-150"
+			onClick={props.onNewUpload}
+		>
+			<Plus class="w-4 h-4" />
+			New Upload
+		</button>
+		<button
+			class="border border-border text-foreground px-6 py-2.5 rounded-lg text-sm font-medium
+             hover:bg-muted transition-colors bg-card"
+			onClick={props.onViewDetails}
+		>
+			View File Details
+		</button>
+	</div>
+);
+export default UploadSuccess;
 ```
 
 ## File: src/routes/api/auth/[...auth].ts
@@ -701,571 +1018,64 @@ import { auth } from "@/lib/auth";
 export const { GET, POST } = toSolidStartHandler(auth);
 ```
 
-## File: src/routes/auth/forgot-password.tsx
-```typescript
-import { Field } from "@ark-ui/solid/field";
-import { Toast, Toaster, createToaster } from "@ark-ui/solid/toast";
-import { A } from "@solidjs/router";
-import { ArrowLeft, Mail, X, XIcon } from "lucide-solid";
-import { type Component, createSignal, type JSX, Show } from "solid-js";
-import { Portal } from "solid-js/web";
-import { authClient } from "@/lib/auth-client";
-const linkClass = "font-medium text-foreground hover:text-muted-foreground";
-const ForgotPasswordForm: Component = () => {
-	const [email, setEmail] = createSignal("");
-	const [isLoading, setIsLoading] = createSignal(false);
-	const [submitted, setSubmitted] = createSignal(false);
-	const [error, setError] = createSignal<string | null>(null);
-	const toaster = createToaster({
-		placement: "top",
-		overlap: true,
-		gap: 24,
-	});
-	const handleSubmit: JSX.EventHandler<HTMLFormElement, SubmitEvent> = async (
-		e,
-	) => {
-		e.preventDefault();
-		setError(null);
-		setIsLoading(true);
-		try {
-			const response = await authClient.requestPasswordReset({
-				email: email(),
-				redirectTo: "/auth/reset-password",
-			});
-			if (response.error) {
-				throw new Error(response.error.message ?? "Failed to send reset link");
-			}
-			setSubmitted(true);
-			toaster.create({
-				title: "Reset link sent! Check your email.",
-				type: "success",
-			});
-		} catch (err: unknown) {
-			const message =
-				err instanceof Error ? err.message : "Failed to send reset link";
-			setError(message);
-			toaster.create({
-				title: message,
-				type: "error",
-			});
-		} finally {
-			setIsLoading(false);
-		}
-	};
-	return (
-		<main class="h-screen w-screen flex items-center justify-center">
-			<div class="max-w-md p-8 mx-auto shadow bg-linear-180 outline outline-border from-muted to-background rounded-xl">
-				<div class="text-center lg:text-balance">
-					<h1 class="font-heading text-xl md:text-2xl lg:text-3xl font-semibold tracking-tight text-foreground">
-						{submitted() ? "Check your email" : "Forgot your password?"}
-					</h1>
-					<p class="text-base mt-2 text-muted-foreground text-balance">
-						{submitted()
-							? "We've sent a password reset link to your email address."
-							: "No worries. Enter the email tied to your account and we'll send you a link to reset it."}
-					</p>
-				</div>
-				<Show when={!submitted()}>
-					<form class="mt-10 space-y-4" onSubmit={handleSubmit}>
-						<Show when={error()}>
-							<div class="rounded-md border border-red-100 bg-red-50 p-3 text-sm text-red-600">
-								{error()}
-							</div>
-						</Show>
-						{}
-						<Field.Root class="w-full" required disabled={isLoading()}>
-							<Field.Label class="font-medium text-muted-foreground text-sm mb-1 block">
-								Email Address
-							</Field.Label>
-							<div class="relative z-0 focus-within:z-10">
-								<div class="absolute inset-y-0 left-0 flex items-center pl-3 pointer-events-none">
-									<Mail
-										class="size-4 text-muted-foreground"
-										aria-hidden="true"
-									/>
-								</div>
-								<Field.Input
-									name="email"
-									type="email"
-									inputmode="email"
-									autocomplete="email"
-									placeholder="you@example.com"
-									class="block w-full h-10 px-4 py-2 pl-10 pr-10 text-sm leading-tight align-middle rounded-md bg-background text-foreground shadow-sm border border-transparent ring-1 ring-border placeholder:text-muted-foreground transition duration-300 ease-in-out focus:z-10 focus:border-border focus:ring-2 focus:ring-border focus:outline-none"
-									value={email()}
-									onInput={(e) => setEmail(e.currentTarget.value)}
-								/>
-								<Show when={email()}>
-									<div class="absolute inset-y-0 right-0 flex items-center pr-3">
-										<button
-											type="button"
-											class="text-muted-foreground hover:text-foreground focus:outline-none"
-											aria-label="Clear email"
-											onClick={() => setEmail("")}
-										>
-											<X class="size-4" aria-hidden="true" />
-										</button>
-									</div>
-								</Show>
-							</div>
-						</Field.Root>
-						{}
-						<button
-							type="submit"
-							disabled={isLoading()}
-							class="relative flex w-full h-10 px-5 items-center justify-center text-sm font-medium text-center select-none rounded-md bg-primary text-primary-foreground outline outline-primary transition-colors duration-200 ease-in-out hover:opacity-90 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring focus-visible:z-10 disabled:pointer-events-none disabled:opacity-50"
-						>
-							{isLoading() ? "Sending..." : "Send reset link"}
-						</button>
-					</form>
-				</Show>
-				{}
-				<p class="text-xs mt-4 font-medium text-muted-foreground flex items-center justify-center">
-					<A
-						href="/auth/login"
-						class={`${linkClass} inline-flex items-center gap-1.5`}
-					>
-						<ArrowLeft class="size-3.5" aria-hidden="true" />
-						Back to sign in
-					</A>
-				</p>
-			</div>
-			<Portal>
-				<Toaster toaster={toaster}>
-					{(toast) => (
-						<Toast.Root class="flex flex-col gap-1 items-start relative p-4 pr-10 rounded-lg bg-background border shadow-lg">
-							<Toast.Title class="text-sm font-medium">
-								{toast().title}
-							</Toast.Title>
-							<Toast.CloseTrigger class="absolute top-1 right-1 p-1 rounded-md hover:bg-muted transition-colors">
-								<XIcon class="size-4" />
-							</Toast.CloseTrigger>
-						</Toast.Root>
-					)}
-				</Toaster>
-			</Portal>
-		</main>
-	);
-};
-export default ForgotPasswordForm;
-```
-
-## File: src/routes/auth/login.tsx
-```typescript
-import { Checkbox } from "@ark-ui/solid/checkbox";
-import { Field } from "@ark-ui/solid/field";
-import { Toast, Toaster, createToaster } from "@ark-ui/solid/toast";
-import { A, useNavigate } from "@solidjs/router";
-import { CheckIcon, Eye, EyeOff, Mail, X, XIcon } from "lucide-solid";
-import { createSignal, type JSX, Show } from "solid-js";
-import { Portal } from "solid-js/web";
-import { authClient } from "@/lib/auth-client";
-export default function LoginForm() {
-	const navigate = useNavigate();
-	const [email, setEmail] = createSignal("");
-	const [password, setPassword] = createSignal("");
-	const [showPassword, setShowPassword] = createSignal(false);
-	const [rememberMe, setRememberMe] = createSignal(false);
-	const [isLoading, setIsLoading] = createSignal(false);
-	const [error, setError] = createSignal<string | null>(null);
-	const toaster = createToaster({
-		placement: "top",
-		overlap: true,
-		gap: 24,
-	});
-	const handleSubmit: JSX.EventHandler<HTMLFormElement, SubmitEvent> = async (
-		e,
-	) => {
-		e.preventDefault();
-		setError(null);
-		setIsLoading(true);
-		try {
-			const response = await authClient.signIn.email({
-				email: email(),
-				password: password(),
-			});
-			if (response.error) {
-				throw new Error(response.error.message ?? "Invalid email or password");
-			}
-			toaster.create({
-				title: "Signed in successfully!",
-				type: "success",
-			});
-			navigate("/dashboard", { replace: true });
-		} catch (err: unknown) {
-			const message =
-				err instanceof Error ? err.message : "Invalid email or password";
-			setError(message);
-			toaster.create({
-				title: message,
-				type: "error",
-			});
-		} finally {
-			setIsLoading(false);
-		}
-	};
-	return (
-		<main class="h-screen w-screen flex items-center justify-center">
-			<div class="max-w-md p-8 mx-auto bg-card text-card-foreground rounded-xl shadow-md">
-				<div class="text-center">
-					<h2 class="text-xl md:text-2xl lg:text-3xl font-semibold tracking-tight text-foreground font-heading">
-						Sign in
-					</h2>
-					<p class="text-base mt-4 text-muted-foreground text-balance">
-						Welcome back! Fire up that password muscle memory, just like the
-						good old dial-up days.
-					</p>
-				</div>
-				<form class="mt-10 space-y-4" onSubmit={handleSubmit}>
-					<Show when={error()}>
-						<div class="rounded-md border border-red-100 bg-red-50 p-3 text-sm text-red-600">
-							{error()}
-						</div>
-					</Show>
-					{}
-					<Field.Root class="w-full" disabled={isLoading()}>
-						<Field.Label class="font-medium text-muted-foreground text-sm mb-1 block">
-							Email Address
-						</Field.Label>
-						<div class="relative z-0 focus-within:z-10">
-							<div class="absolute inset-y-0 left-0 flex items-center pl-3 pointer-events-none">
-								<Mail class="size-4 text-muted-foreground" />
-							</div>
-							<Field.Input
-								placeholder="you@example.com"
-								name="email"
-								type="email"
-								inputMode="email"
-								value={email()}
-								onInput={(e) => setEmail(e.currentTarget.value)}
-								class="w-full block transition duration-300 ease-in-out leading-tight align-middle focus:z-10 pl-10 h-10 px-4 py-2 text-sm rounded-md bg-background border border-border text-foreground ring-1 ring-border placeholder:text-muted-foreground focus:border-ring focus:ring-2 focus:ring-ring focus:outline-none shadow-sm"
-							/>
-						</div>
-					</Field.Root>
-					{}
-					<Field.Root class="w-full" required disabled={isLoading()}>
-						<Field.Label class="font-medium text-muted-foreground text-sm mb-1 block">
-							Password <Field.RequiredIndicator class="text-destructive" />
-						</Field.Label>
-						<div class="relative z-0 focus-within:z-10">
-							<Field.Input
-								placeholder="••••••••"
-								name="password"
-								type={showPassword() ? "text" : "password"}
-								value={password()}
-								onInput={(e) => setPassword(e.currentTarget.value)}
-								class="w-full block transition duration-300 ease-in-out leading-tight align-middle focus:z-10 h-10 px-4 py-2 text-sm rounded-md bg-background border border-border text-foreground ring-1 ring-border placeholder:text-muted-foreground focus:border-ring focus:ring-2 focus:ring-ring focus:outline-none shadow-sm"
-							/>
-							<div class="absolute inset-y-0 right-0 flex items-center pr-3 gap-2">
-								<button
-									type="button"
-									onClick={() => setShowPassword(!showPassword())}
-									class="text-muted-foreground hover:text-foreground focus:outline-none focus:text-foreground transition-colors"
-									tabIndex={-1}
-									aria-label={
-										showPassword() ? "Hide password" : "Show password"
-									}
-								>
-									{showPassword() ? (
-										<EyeOff class="size-4" />
-									) : (
-										<Eye class="size-4" />
-									)}
-								</button>
-								<Show when={password()}>
-									<button
-										type="button"
-										onClick={() => setPassword("")}
-										class="text-muted-foreground hover:text-foreground focus:outline-none focus:text-foreground transition-colors"
-										aria-label="Clear password"
-									>
-										<X class="size-4" />
-									</button>
-								</Show>
-							</div>
-						</div>
-					</Field.Root>
-					{}
-					<Field.Root class="w-full" data-inline>
-						<Checkbox.Root
-							checked={rememberMe()}
-							onCheckedChange={(details) =>
-								setRememberMe(details.checked === true)
-							}
-							class="inline-flex items-center gap-2"
-						>
-							<Checkbox.Control class="flex items-center justify-center shrink-0 size-4 rounded border border-border bg-background data-[state=checked]:bg-primary data-[state=checked]:border-primary transition-colors focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring">
-								<Checkbox.Indicator class="text-primary-foreground">
-									<CheckIcon class="size-3" />
-								</Checkbox.Indicator>
-							</Checkbox.Control>
-							<Checkbox.Label class="text-sm font-medium text-muted-foreground select-none">
-								Remember me for 30 days
-							</Checkbox.Label>
-							<Checkbox.HiddenInput name="login-remember" />
-						</Checkbox.Root>
-					</Field.Root>
-					{}
-					<button
-						type="submit"
-						disabled={isLoading()}
-						class="relative flex items-center justify-center text-center font-medium transition-colors duration-200 ease-in-out select-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:z-10 rounded-md w-full text-primary-foreground bg-primary hover:opacity-90 focus-visible:outline-ring h-10 px-5 text-sm disabled:pointer-events-none disabled:opacity-50"
-					>
-						{isLoading() ? "Signing in..." : "Sign in with email"}
-					</button>
-				</form>
-				<p class="text-xs mt-4 font-medium text-muted-foreground">
-					Forgot your account?{" "}
-					<A
-						href="/auth/forgot-password"
-						class="font-medium text-foreground hover:text-primary transition-colors"
-					>
-						Sign up
-					</A>
-				</p>
-			</div>
-			<Portal>
-				<Toaster toaster={toaster}>
-					{(toast) => (
-						<Toast.Root class="flex flex-col gap-1 items-start relative p-4 pr-10 rounded-lg bg-background border shadow-lg">
-							<Toast.Title class="text-sm font-medium">
-								{toast().title}
-							</Toast.Title>
-							<Toast.CloseTrigger class="absolute top-1 right-1 p-1 rounded-md hover:bg-muted transition-colors">
-								<XIcon class="size-4" />
-							</Toast.CloseTrigger>
-						</Toast.Root>
-					)}
-				</Toaster>
-			</Portal>
-		</main>
-	);
-}
-```
-
-## File: src/routes/auth/reset-password.tsx
-```typescript
-import { Field } from "@ark-ui/solid/field";
-import { PasswordInput } from "@ark-ui/solid/password-input";
-import { Toast, Toaster, createToaster } from "@ark-ui/solid/toast";
-import { A, useNavigate, useSearchParams } from "@solidjs/router";
-import { EyeIcon, EyeOffIcon, XIcon } from "lucide-solid";
-import { createSignal, Show } from "solid-js";
-import { Portal } from "solid-js/web";
-import { authClient } from "@/lib/auth-client";
-export default function ResetPasswordForm() {
-	const navigate = useNavigate();
-	const [searchParams] = useSearchParams();
-	const token = searchParams.token as string | undefined;
-	const [password, setPassword] = createSignal("");
-	const [confirmPassword, setConfirmPassword] = createSignal("");
-	const [isLoading, setIsLoading] = createSignal(false);
-	const [error, setError] = createSignal<string | null>(null);
-	const toaster = createToaster({
-		placement: "top",
-		overlap: true,
-		gap: 24,
-	});
-	const handleSubmit = async (e: SubmitEvent) => {
-		e.preventDefault();
-		setError(null);
-		if (password() !== confirmPassword()) {
-			setError("Passwords do not match");
-			return;
-		}
-		if (password().length < 8) {
-			setError("Password must be at least 8 characters");
-			return;
-		}
-		if (!token) {
-			setError("Invalid or missing reset token");
-			return;
-		}
-		setIsLoading(true);
-		try {
-			const response = await authClient.resetPassword({
-				newPassword: password(),
-				token,
-			});
-			if (response.error) {
-				throw new Error(response.error.message ?? "Failed to reset password");
-			}
-			toaster.create({
-				title: "Password reset successfully!",
-				type: "success",
-			});
-			navigate("/auth/login", { replace: true });
-		} catch (err: unknown) {
-			const message =
-				err instanceof Error ? err.message : "Failed to reset password";
-			setError(message);
-			toaster.create({
-				title: message,
-				type: "error",
-			});
-		} finally {
-			setIsLoading(false);
-		}
-	};
-	return (
-		<main class="h-screen w-screen flex items-center justify-center">
-			<div class="max-w-md p-8 mx-auto shadow bg-linear-180 border border-border from-muted to-background rounded-xl">
-				<div class="text-center lg:text-balance">
-					<h2 class="text-xl md:text-2xl lg:text-3xl font-semibold tracking-tight text-foreground font-heading">
-						Reset your password
-					</h2>
-					<p class="text-base mt-2 text-muted-foreground text-balance">
-						Enter your email and choose a new password to regain access to your
-						account.
-					</p>
-				</div>
-				<form class="mt-10 space-y-4" onSubmit={handleSubmit}>
-					<Show when={error()}>
-						<div class="rounded-md border border-red-100 bg-red-50 p-3 text-sm text-red-600">
-							{error()}
-						</div>
-					</Show>
-					<Field.Root class="w-full" required disabled={isLoading()}>
-						<PasswordInput.Root
-							name="password"
-							autoComplete="new-password"
-							required
-							class="w-full"
-						>
-							<PasswordInput.Label class="font-medium text-muted-foreground text-sm mb-1 block">
-								New Password
-							</PasswordInput.Label>
-							<PasswordInput.Control class="relative flex items-center">
-								<PasswordInput.Input
-									placeholder="••••••••"
-									onInput={(e) => setPassword(e.currentTarget.value)}
-									class="w-full h-10 px-4 py-2 pr-10 text-sm rounded-md bg-background border border-transparent text-foreground ring-1 ring-border placeholder:text-muted-foreground focus:border-border focus:ring-border focus:ring-2 focus:outline-none shadow-sm transition duration-300 ease-in-out"
-								/>
-								<PasswordInput.VisibilityTrigger class="absolute right-2 flex items-center justify-center p-1 text-muted-foreground hover:text-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-sm">
-									<PasswordInput.Indicator
-										fallback={<EyeOffIcon class="size-4" />}
-									>
-										<EyeIcon class="size-4" />
-									</PasswordInput.Indicator>
-								</PasswordInput.VisibilityTrigger>
-							</PasswordInput.Control>
-						</PasswordInput.Root>
-					</Field.Root>
-					<Field.Root class="w-full" required disabled={isLoading()}>
-						<PasswordInput.Root
-							name="confirmPassword"
-							autoComplete="new-password"
-							required
-							class="w-full"
-						>
-							<PasswordInput.Label class="font-medium text-muted-foreground text-sm mb-1 block">
-								Confirm New Password
-							</PasswordInput.Label>
-							<PasswordInput.Control class="relative flex items-center">
-								<PasswordInput.Input
-									placeholder="••••••••"
-									onInput={(e) => setConfirmPassword(e.currentTarget.value)}
-									class="w-full h-10 px-4 py-2 pr-10 text-sm rounded-md bg-background border border-transparent text-foreground ring-1 ring-border placeholder:text-muted-foreground focus:border-border focus:ring-border focus:ring-2 focus:outline-none shadow-sm transition duration-300 ease-in-out"
-								/>
-								<PasswordInput.VisibilityTrigger class="absolute right-2 flex items-center justify-center p-1 text-muted-foreground hover:text-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-ring rounded-sm">
-									<PasswordInput.Indicator
-										fallback={<EyeOffIcon class="size-4" />}
-									>
-										<EyeIcon class="size-4" />
-									</PasswordInput.Indicator>
-								</PasswordInput.VisibilityTrigger>
-							</PasswordInput.Control>
-						</PasswordInput.Root>
-					</Field.Root>
-					<p class="text-xs font-medium text-muted-foreground">
-						Make sure your password is at least 8 characters long and includes a
-						mix of letters, numbers, and symbols.
-					</p>
-					<button
-						type="submit"
-						disabled={isLoading()}
-						class="relative flex items-center justify-center font-medium transition-colors duration-200 ease-in-out select-none focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring rounded-md w-full h-10 px-5 text-sm text-primary-foreground bg-primary hover:opacity-90 disabled:pointer-events-none disabled:opacity-50"
-					>
-						{isLoading() ? "Resetting..." : "Reset password"}
-					</button>
-				</form>
-				<p class="text-xs mt-4 font-medium text-muted-foreground">
-					Remember your password?{" "}
-					<A
-						href="/auth/login"
-						class="font-medium text-foreground hover:text-muted-foreground"
-					>
-						Back to sign in
-					</A>
-				</p>
-			</div>
-			<Portal>
-				<Toaster toaster={toaster}>
-					{(toast) => (
-						<Toast.Root class="flex flex-col gap-1 items-start relative p-4 pr-10 rounded-lg bg-background border shadow-lg">
-							<Toast.Title class="text-sm font-medium">
-								{toast().title}
-							</Toast.Title>
-							<Toast.CloseTrigger class="absolute top-1 right-1 p-1 rounded-md hover:bg-muted transition-colors">
-								<XIcon class="size-4" />
-							</Toast.CloseTrigger>
-						</Toast.Root>
-					)}
-				</Toaster>
-			</Portal>
-		</main>
-	);
-}
-```
-
-## File: src/routes/auth/verify-2fa.tsx
+## File: src/routes/upload.tsx
 ```typescript
 import { Title } from "@solidjs/meta";
-import { useNavigate } from "@solidjs/router";
-import { onMount } from "solid-js";
-import TwoFactorVerify from "@/components/auth/two-factor-verify";
-export default function Verify2FAPage() {
-	const navigate = useNavigate();
-	onMount(() => {
-		if (localStorage.getItem("pending2FA") !== "true") {
-			navigate("/auth/login", { replace: true });
-		}
-	});
+import { Sidebar } from "@/components/sidebar/Sidebar";
+import SecureUpload from "@/components/upload/SecureUpload";
+import AuthGuard from "@/components/auth/auth-guard";
+export default function upload() {
 	return (
-		<>
-			<Title>Verify 2FA | Secure Login</Title>
-			<div class="flex min-h-screen items-center justify-center p-4">
-				<div class="w-full max-w-md space-y-6 p-8 shadow-md">
-					<div class="text-center">
-						<h1 class="text-2xl font-bold tracking-tight">
-							Two-Factor Authentication
-						</h1>
-						<p class="mt-2 text-sm">
-							Enter your security code to complete sign-in.
-						</p>
-					</div>
-					<TwoFactorVerify
-						onVerified={() => localStorage.removeItem("pending2FA")}
-					/>
+		<AuthGuard>
+			<>
+				<Title>Upload</Title>
+				<div class="flex h-screen">
+					<Sidebar />
+					<main class="flex-1 w-full max-w-max-content-width mx-auto px-6">
+						<SecureUpload />
+					</main>
 				</div>
-			</div>
-		</>
+			</>
+		</AuthGuard>
 	);
 }
 ```
 
-## File: src/types/auth.ts
+## File: src/types/upload.ts
 ```typescript
-import type { UserRole as PrismaUserRole } from "@generated/prisma/client";
-export type UserRole = PrismaUserRole;
-export interface AuthUser {
-	id: string;
-	email: string;
+export type Phase = "idle" | "selecting" | "uploading" | "success" | "error";
+export interface FileMetadata {
 	name: string;
-	role: UserRole;
-	departmentId: string | null;
-	emailVerified: boolean;
-	twoFactorEnabled: boolean;
-	passwordChanged: boolean;
-	image: string | null;
+	size: number;
 }
+export interface ShareData {
+	url: string;
+	key: string;
+}
+export interface SecuritySettings {
+	expiration: string;
+	oneTimeDownload: boolean;
+	maxDownloads: number | null;
+}
+```
+
+## File: src/utils/upload.ts
+```typescript
+export const formatFileSize = (bytes: number): string => {
+	if (bytes === 0) return "0 B";
+	const k = 1024;
+	const sizes = ["B", "KB", "MB", "GB"];
+	const i = Math.floor(Math.log(bytes) / Math.log(k));
+	return `${parseFloat((bytes / k ** i).toFixed(1))} ${sizes[i]}`;
+};
+export const getPhaseLabel = (progress: number): string => {
+	if (progress < 20) return "Preparing file...";
+	if (progress < 50) return "Encrypting...";
+	if (progress < 90) return "Uploading securely...";
+	return "Finalizing...";
+};
+export const generateShareData = () => ({
+	url: "https://secureshare.corp/v/a8f72",
+	key: "x9k2mPq4zL8",
+});
 ```
