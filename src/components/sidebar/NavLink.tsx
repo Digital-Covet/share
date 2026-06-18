@@ -1,7 +1,7 @@
 import { A } from "@solidjs/router";
-import * as LucideIcons from "lucide-solid";
 import type { Component } from "solid-js";
 import { Dynamic } from "solid-js/web";
+import { getIcon } from "@/lib/icons";
 
 interface NavLinkProps {
 	label: string;
@@ -13,7 +13,7 @@ interface NavLinkProps {
 }
 
 export const NavLink: Component<NavLinkProps> = (props) => {
-	const Icon = () => (LucideIcons as any)[props.icon] || LucideIcons.FileText;
+	const Icon = () => getIcon(props.icon);
 
 	const content = (
 		<>

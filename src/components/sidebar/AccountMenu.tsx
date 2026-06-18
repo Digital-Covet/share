@@ -71,7 +71,7 @@ export const AccountMenu: Component = () => {
                 }
               >
                 <img
-                  src={getAvatarUrl(user()?.image) ?? ""}
+                  src={getAvatarUrl(user()?.image ?? null) ?? ""}
                   alt="Avatar"
                   class="size-8 rounded-full"
                 />

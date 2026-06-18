@@ -1,8 +1,8 @@
-import * as LucideIcons from "lucide-solid";
 import { ChevronDown, ChevronRight } from "lucide-solid";
 import type { Component, JSX } from "solid-js";
 import { createSignal, Show } from "solid-js";
 import { Dynamic } from "solid-js/web";
+import { getIcon } from "@/lib/icons";
 
 interface CollapsibleSectionProps {
 	label: string;
@@ -15,7 +15,7 @@ export const CollapsibleSection: Component<CollapsibleSectionProps> = (
 	props,
 ) => {
 	const [open, setOpen] = createSignal(props.defaultOpen ?? true);
-	const Icon = () => (LucideIcons as any)[props.icon] || LucideIcons.Folder;
+	const Icon = () => getIcon(props.icon);
 
 	return (
 		<li class="pt-2 mt-2 border-t border-border">
