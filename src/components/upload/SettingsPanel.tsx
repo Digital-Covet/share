@@ -71,9 +71,9 @@ const SettingsPanel: Component<SettingsPanelProps> = (props) => {
 // ---- Internal field components ----
 
 interface ExpirationFieldProps {
-	value: string;
+	value: "24h" | "7d" | "30d" | "custom";
 	disabled?: boolean;
-	onChange: (value: string) => void;
+	onChange: (value: "24h" | "7d" | "30d" | "custom") => void;
 }
 
 const expirationOptions = createListCollection({
@@ -91,7 +91,9 @@ const ExpirationField: Component<ExpirationFieldProps> = (props) => (
 			collection={expirationOptions}
 			value={[props.value]}
 			disabled={props.disabled}
-			onValueChange={(details) => props.onChange(details.value[0])}
+			onValueChange={(details) =>
+				props.onChange(details.value[0] as "24h" | "7d" | "30d" | "custom")
+			}
 		>
 			<Select.Label class="text-sm font-semibold text-foreground block mb-2">
 				Expiration Time

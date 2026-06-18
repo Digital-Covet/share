@@ -1,3 +1,6 @@
+export const CHUNK_SIZE = 5 * 1024 * 1024;
+export const getTotalChunks = (fileSize: number) => Math.ceil(fileSize / CHUNK_SIZE);
+
 export const formatFileSize = (bytes: number): string => {
 	if (bytes === 0) return "0 B";
 	const k = 1024;
@@ -12,8 +15,3 @@ export const getPhaseLabel = (progress: number): string => {
 	if (progress < 90) return "Uploading securely...";
 	return "Finalizing...";
 };
-
-export const generateShareData = () => ({
-	url: "https://secureshare.corp/v/a8f72",
-	key: "x9k2mPq4zL8",
-});

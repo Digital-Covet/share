@@ -1,11 +1,13 @@
 import { type Component, createSignal, Show } from "solid-js";
 import type {
+	CompleteUploadResponse,
 	FileMetadata,
+	InitiateUploadResponse,
 	Phase,
 	SecuritySettings,
 	ShareData,
 } from "@/types/upload";
-import { generateShareData } from "@/utils/upload";
+import { CHUNK_SIZE, getTotalChunks } from "@/utils/upload";
 import DropZone from "./DropZone";
 import SettingsPanel from "./SettingsPanel";
 import UploadProgress from "./UploadProgress";
@@ -46,29 +48,79 @@ const SecureUpload: Component = () => {
 		setPhase("idle");
 	};
 
-	const handleUpload = () => {
+	const handleUpload = async () => {
 		if (!selectedFile()) return;
-
 		setPhase("uploading");
 		setUploadProgress(0);
 
-		const interval = setInterval(() => {
-			setUploadProgress((prev) => {
-				if (prev >= 100) {
-					clearInterval(interval);
-					setShareData(generateShareData());
-					setPhase("success");
-					return 100;
-				}
-				// Simulate variable network speed
-				const remaining = 100 - prev;
-				const increment = Math.max(
-					1,
-					Math.min(remaining, Math.floor(Math.random() * 8) + 2),
-				);
-				return prev + increment;
+		const file = selectedFile()!;
+		const currentSettings = settings();
+
+		try {
+			const initRes = await fetch("/api/files/initiate-upload", {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({
+					file_name: file.name,
+					mime_type: "application/octet-stream",
+					original_size: file.size,
+					total_chunks: getTotalChunks(file.size),
+					iv_base_hash: "placeholder_hash_day3",
+				}),
 			});
-		}, 250);
+			if (!initRes.ok) throw new Error("Init failed");
+			const { fileId, uploadId, presignedUrls }: InitiateUploadResponse =
+				await initRes.json();
+
+			const etags: { partNumber: number; etag: string }[] = [];
+			for (let i = 0; i < presignedUrls.length; i++) {
+				const { partNumber, url } = presignedUrls[i];
+				const chunkData = new Uint8Array(
+					Math.min(CHUNK_SIZE, file.size - i * CHUNK_SIZE),
+				);
+
+				const chunkRes = await fetch(url, {
+					method: "PUT",
+					body: chunkData,
+				});
+				if (!chunkRes.ok) throw new Error(`Chunk ${partNumber} upload failed`);
+
+				const etag = chunkRes.headers.get("ETag");
+				if (!etag) throw new Error("Missing ETag");
+				etags.push({ partNumber, etag });
+
+				setUploadProgress(
+					Math.floor(((i + 1) / presignedUrls.length) * 100),
+				);
+			}
+
+			const isMultipart = uploadId !== null;
+			const completeRes = await fetch(
+				isMultipart ? "/api/files/complete-upload" : "/api/files/finalize",
+				{
+					method: "POST",
+					headers: { "Content-Type": "application/json" },
+					body: JSON.stringify({
+						fileId,
+						encrypted_size: file.size,
+						...(isMultipart ? { etags } : {}),
+						security_settings: currentSettings,
+					}),
+				},
+			);
+
+			if (!completeRes.ok) throw new Error("Finalize failed");
+			const { shareLink }: CompleteUploadResponse = await completeRes.json();
+
+			setShareData({
+				url: `${window.location.origin}/s/${fileId}`,
+				key: "placeholder_key_day3",
+			});
+			setPhase("success");
+		} catch (error) {
+			console.error("Upload failed:", error);
+			setPhase("error");
+		}
 	};
 
 	const handleCancel = () => {
