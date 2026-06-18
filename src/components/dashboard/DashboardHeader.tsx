@@ -19,7 +19,15 @@ export function DashboardHeader(props: DashboardHeaderProps) {
 	const [showFilters, setShowFilters] = createSignal(false);
 	const [showSort, setShowSort] = createSignal(false);
 
-	const statuses = ["All", "Active", "One-Time", "Pending", "Expired"];
+	const statuses = [
+		"All",
+		"Active",
+		"One-Time",
+		"Pending",
+		"Expired",
+		"Consumed",
+		"Revoked",
+	];
 	const sortOptions = [
 		{ label: "File Name", value: "name" },
 		{ label: "Size", value: "size" },

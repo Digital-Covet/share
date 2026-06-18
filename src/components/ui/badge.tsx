@@ -18,6 +18,10 @@ export function Badge(props: BadgeProps) {
 				return "bg-amber-500/10 text-amber-400 border border-amber-500/20";
 			case "Expired":
 				return "bg-error/10 text-error border border-error/20";
+			case "Consumed":
+				return "bg-orange-500/10 text-orange-400 border border-orange-500/20";
+			case "Revoked":
+				return "bg-destructive/10 text-destructive border border-destructive/20";
 			default:
 				return "bg-muted text-muted-foreground border border-border";
 		}
