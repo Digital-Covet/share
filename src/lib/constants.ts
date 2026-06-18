@@ -5,6 +5,13 @@ export const SUPPORT_EMAIL = "support@digitalcovet.com";
 export const COMPANY_NAME = "Digital Covet";
 export const INVITATION_EXPIRY_DAYS = 7;
 
+// File expiration: default 7 days for anonymous uploads.
+// NULL means "never expire" — only for authenticated internal uploads.
+export const DEFAULT_FILE_EXPIRATION_DAYS = 7;
+
+// Upload session inactivity: cron aborts sessions idle longer than this.
+export const UPLOAD_SESSION_INACTIVITY_HOURS = 24;
+
 export const ROUTES = {
 	LOGIN: "/auth/login",
 	FORGOT_PASSWORD: "/auth/forgot-password",
