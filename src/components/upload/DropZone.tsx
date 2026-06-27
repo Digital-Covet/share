@@ -1,21 +1,29 @@
 import { FileUpload } from "@ark-ui/solid/file-upload";
-import { File as FileIcon, Lock, Upload, X } from "lucide-solid";
-import { type Component, onCleanup, onMount, Show } from "solid-js";
+import {
+	File as FileIcon,
+	Lock,
+	Upload,
+	X,
+} from "lucide-solid";
+import { type Component, createSignal, onCleanup, onMount, Show } from "solid-js";
 import { isServer } from "solid-js/web";
 import type { FileMetadata } from "@/types/upload";
 import { formatFileSize } from "@/utils/upload";
 
 interface DropZoneProps {
-	onFileSelect: (file: File) => void;
-	selectedFile: FileMetadata | null;
+	onFilesSelect: (files: File[]) => void;
+	selectedFiles: FileMetadata[];
+	onRemoveFile: (index: number) => void;
 	onReset: () => void;
 	disabled?: boolean;
 }
 
 const DropZone: Component<DropZoneProps> = (props) => {
+	const [isDragOver, setIsDragOver] = createSignal(false);
+
 	const handleFileAccept = (details: { files: File[] }) => {
 		if (details.files.length > 0) {
-			props.onFileSelect(details.files[0]);
+			props.onFilesSelect(details.files);
 		}
 	};
 
@@ -23,15 +31,26 @@ const DropZone: Component<DropZoneProps> = (props) => {
 		if (props.disabled) return;
 		const items = e.clipboardData?.items;
 		if (!items) return;
+
+		const files: File[] = [];
 		for (const item of items) {
 			if (item.kind === "file") {
 				const file = item.getAsFile();
-				if (file) {
-					props.onFileSelect(file);
-					break;
-				}
+				if (file) files.push(file);
 			}
 		}
+		if (files.length > 0) {
+			props.onFilesSelect(files);
+		}
+	};
+
+	const handleDragOver = (e: DragEvent) => {
+		e.preventDefault();
+		setIsDragOver(true);
+	};
+
+	const handleDragLeave = () => {
+		setIsDragOver(false);
 	};
 
 	onMount(() => {
@@ -44,20 +63,26 @@ const DropZone: Component<DropZoneProps> = (props) => {
 		document.removeEventListener("paste", handlePaste);
 	});
 
+	const hasFiles = () => props.selectedFiles.length > 0;
+
 	return (
 		<FileUpload.Root
-			maxFiles={1}
+			maxFiles={Infinity}
 			disabled={props.disabled}
 			onFileAccept={handleFileAccept}
 		>
 			<FileUpload.Dropzone
-				class="relative h-80 rounded-xl border-2 border-dashed border-border bg-card
-               transition-all duration-300 hover:border-primary hover:bg-accent/30
-               group cursor-pointer overflow-hidden"
+				class={`relative h-80 rounded-xl border-2 border-dashed bg-card
+				transition-all duration-300 group cursor-pointer overflow-hidden
+				${isDragOver() ? "border-primary bg-primary/5 scale-[1.02]" : "border-border hover:border-primary hover:bg-accent/30"}
+				`}
+				onDragOver={handleDragOver}
+				onDragLeave={handleDragLeave}
 			>
-				<Show when={props.selectedFile} fallback={<DropZoneEmpty />}>
+				<Show when={hasFiles()} fallback={<DropZoneEmpty />}>
 					<DropZoneSelected
-						file={props.selectedFile!}
+						files={props.selectedFiles}
+						onRemoveFile={props.onRemoveFile}
 						onReset={props.onReset}
 					/>
 				</Show>
@@ -80,15 +105,15 @@ const DropZoneEmpty: Component = () => (
 			Drop files here or click to browse
 		</h3>
 		<p class="text-sm text-muted-foreground text-center max-w-md leading-relaxed">
-			Supports all file types up to 50GB. <br />
-			You can also paste a file from your clipboard (Ctrl+V / Cmd+V). <br />
-			Files are zero-knowledge encrypted locally before transfer.
+			Supports all file types up to 9.9GB. <br />
+			You can also paste files from your clipboard (Ctrl+V / Cmd+V).
 		</p>
 	</div>
 );
 
 interface DropZoneSelectedProps {
-	file: FileMetadata;
+	files: FileMetadata[];
+	onRemoveFile: (index: number) => void;
 	onReset: () => void;
 }
 
@@ -96,32 +121,49 @@ const DropZoneSelected: Component<DropZoneSelectedProps> = (props) => (
 	<div class="absolute inset-0 bg-card/95 backdrop-blur-sm flex flex-col p-6 z-20">
 		<div class="flex justify-between items-center mb-4 border-b border-border pb-4">
 			<h4 class="text-sm font-semibold uppercase tracking-wider text-foreground">
-				Selected Files (1)
+				Selected Files ({props.files.length})
 			</h4>
 			<button
+				type="button"
 				class="text-muted-foreground hover:text-destructive transition-colors
                p-1 hover:bg-destructive/10 rounded"
 				onClick={(e) => {
 					e.stopPropagation();
 					props.onReset();
 				}}
-				aria-label="Remove selected file"
+				aria-label="Remove all files"
 			>
 				<X class="w-5 h-5" />
 			</button>
 		</div>
 
-		<div class="flex items-center gap-4 bg-muted p-4 rounded-lg border border-border">
-			<FileIcon class="w-8 h-8 text-primary shrink-0" />
-			<div class="flex-1 min-w-0">
-				<p class="text-sm font-medium text-foreground truncate">
-					{props.file.name}
-				</p>
-				<p class="text-xs text-muted-foreground mt-1">
-					{formatFileSize(props.file.size)}
-				</p>
-			</div>
-			<Lock class="w-4 h-4 text-muted-foreground shrink-0" />
+		<div class="flex-1 overflow-y-auto space-y-2">
+			{props.files.map((file, index) => (
+				<div class="flex items-center gap-4 bg-muted p-3 rounded-lg border border-border">
+					<FileIcon class="w-6 h-6 text-primary shrink-0" />
+					<div class="flex-1 min-w-0">
+						<p class="text-sm font-medium text-foreground truncate">
+							{file.name}
+						</p>
+						<p class="text-xs text-muted-foreground mt-0.5">
+							{formatFileSize(file.size)}
+						</p>
+					</div>
+					<Lock class="w-4 h-4 text-muted-foreground shrink-0" />
+					<button
+						type="button"
+						class="text-muted-foreground hover:text-destructive transition-colors
+                         p-1 hover:bg-destructive/10 rounded"
+						onClick={(e) => {
+							e.stopPropagation();
+							props.onRemoveFile(index);
+						}}
+						aria-label={`Remove ${file.name}`}
+					>
+						<X class="w-4 h-4" />
+					</button>
+				</div>
+			))}
 		</div>
 	</div>
 );
