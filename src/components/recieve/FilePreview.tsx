@@ -12,6 +12,7 @@ import {
 	LoaderCircle,
 } from "lucide-solid";
 import { createSignal, For, onCleanup, Show } from "solid-js";
+import { ArrowLeft } from "lucide-solid";
 import { extractZip } from "@/lib/compression";
 import { hasPdfEOF } from "@/lib/download/pdf-trailer";
 import { downloadPipeline, inferCategory } from "@/lib/download/pipeline";
@@ -23,6 +24,7 @@ import {
 } from "@/lib/download/stream-to-disk";
 import type { DownloadResult, FileMeta } from "@/lib/download/types";
 import { formatFileSize } from "@/utils/upload";
+import { ImageViewer } from "./ImageViewer";
 import { MseVideoPlayer } from "./MseVideoPlayer";
 
 interface FilePreviewProps {
@@ -119,6 +121,7 @@ export function FilePreview(props: FilePreviewProps) {
 	const [extractedFiles, setExtractedFiles] = createSignal<ExtractedFile[]>([]);
 	const [downloadProgress, setDownloadProgress] = createSignal(0);
 	const [isDownloading, setIsDownloading] = createSignal(false);
+	const [previewFile, setPreviewFile] = createSignal<ExtractedFile | null>(null);
 
 	let abortController: AbortController | undefined;
 
@@ -317,6 +320,14 @@ export function FilePreview(props: FilePreviewProps) {
 		a.click();
 	};
 
+	const handlePreviewFile = (file: ExtractedFile) => {
+		setPreviewFile(file);
+	};
+
+	const handleBackToList = () => {
+		setPreviewFile(null);
+	};
+
 	const handleDownloadAll = () => {
 		const extracted = extractedFiles();
 		if (extracted.length === 0) return;
@@ -467,7 +478,8 @@ export function FilePreview(props: FilePreviewProps) {
 					<Show
 						when={
 							props.mimeType === "application/zip" &&
-							extractedFiles().length > 0
+							extractedFiles().length > 0 &&
+							!previewFile()
 						}
 					>
 						<div class="flex h-full flex-col overflow-auto">
@@ -488,12 +500,14 @@ export function FilePreview(props: FilePreviewProps) {
 											</div>
 											<div class="flex shrink-0 items-center gap-1 opacity-0 transition-opacity group-hover:opacity-100">
 												<button
-													onClick={() => handleDownload(file)}
+													type="button"
+													onClick={() => handlePreviewFile(file)}
 													class="rounded-lg p-1.5 text-muted-foreground hover:bg-secondary hover:text-primary"
 												>
 													<Eye class="h-4 w-4" />
 												</button>
 												<button
+													type="button"
 													onClick={() => handleDownload(file)}
 													class="rounded-lg p-1.5 text-muted-foreground hover:bg-secondary hover:text-primary"
 												>
@@ -507,6 +521,31 @@ export function FilePreview(props: FilePreviewProps) {
 						</div>
 					</Show>
 
+					{/* Archive file preview */}
+					<Show when={previewFile()}>
+						{(file) => (
+							<div class="flex h-full flex-col">
+								<div class="flex items-center gap-2 border-b border-border px-4 py-2">
+									<button
+										type="button"
+										onClick={handleBackToList}
+										class="flex items-center gap-1.5 rounded-md px-2 py-1 text-xs font-medium text-muted-foreground transition-colors hover:bg-secondary hover:text-foreground"
+									>
+										<ArrowLeft class="h-3.5 w-3.5" />
+										Back
+									</button>
+									<span class="text-xs text-muted-foreground">/</span>
+									<span class="truncate text-xs font-medium text-foreground">
+										{file().name}
+									</span>
+								</div>
+								<div class="flex-1 overflow-hidden">
+									<FilePreviewInline file={file()} />
+								</div>
+							</div>
+						)}
+					</Show>
+
 					{/* Image preview */}
 					<Show
 						when={
@@ -514,13 +553,7 @@ export function FilePreview(props: FilePreviewProps) {
 							!extractedFiles().length
 						}
 					>
-						<div class="flex h-full items-center justify-center bg-secondary/20 p-4">
-							<img
-								src={src()}
-								alt={props.fileName}
-								class="max-h-full max-w-full rounded-lg object-contain shadow-sm"
-							/>
-						</div>
+						<ImageViewer src={src()} alt={props.fileName} />
 					</Show>
 
 					{/* PDF preview */}
@@ -563,6 +596,106 @@ export function FilePreview(props: FilePreviewProps) {
 					</Show>
 				</Show>
 			</div>
+		</div>
+	);
+}
+
+// ---------------------------------------------------------------------------
+// Inline preview for extracted archive files
+// ---------------------------------------------------------------------------
+
+function guessMimeFromName(name: string): string {
+	const ext = name.split(".").pop()?.toLowerCase() ?? "";
+	const map: Record<string, string> = {
+		png: "image/png",
+		jpg: "image/jpeg",
+		jpeg: "image/jpeg",
+		gif: "image/gif",
+		webp: "image/webp",
+		svg: "image/svg+xml",
+		pdf: "application/pdf",
+		txt: "text/plain",
+		json: "application/json",
+		js: "text/javascript",
+		ts: "text/typescript",
+		html: "text/html",
+		css: "text/css",
+		md: "text/markdown",
+	};
+	return map[ext] ?? "application/octet-stream";
+}
+
+function isTextMime(mime: string): boolean {
+	return (
+		mime.startsWith("text/") ||
+		mime === "application/json" ||
+		mime === "application/javascript"
+	);
+}
+
+function FilePreviewInline(props: { file: ExtractedFile }) {
+	const mime = () => guessMimeFromName(props.file.name);
+	const [text, setText] = createSignal("");
+	const [imgSrc, setImgSrc] = createSignal("");
+	const [pdfSrc, setPdfSrc] = createSignal("");
+	const [unsupported, setUnsupported] = createSignal(false);
+
+	const load = () => {
+		const m = mime();
+		if (isTextMime(m)) {
+			setText(new TextDecoder().decode(props.file.data));
+		} else if (m.startsWith("image/")) {
+			setImgSrc(props.file.blobUrl);
+		} else if (m === "application/pdf") {
+			setPdfSrc(props.file.blobUrl);
+		} else {
+			setUnsupported(true);
+		}
+	};
+
+	load();
+
+	return (
+		<div class="h-full w-full">
+			<Show when={text() !== ""}>
+				<pre class="h-full overflow-auto bg-secondary/10 p-5 font-mono text-sm leading-relaxed text-foreground">
+					{text()}
+				</pre>
+			</Show>
+
+			<Show when={imgSrc() !== ""}>
+				<div class="flex h-full items-center justify-center bg-secondary/20 p-4">
+					<img
+						src={imgSrc()}
+						alt={props.file.name}
+						class="max-h-full max-w-full rounded-lg object-contain shadow-sm"
+					/>
+				</div>
+			</Show>
+
+			<Show when={pdfSrc() !== ""}>
+				<iframe
+					src={pdfSrc()}
+					title={props.file.name}
+					class="h-full w-full border-0"
+				/>
+			</Show>
+
+			<Show when={unsupported()}>
+				<div class="flex h-full flex-col items-center justify-center gap-3 px-6">
+					<div class="flex h-14 w-14 items-center justify-center rounded-xl bg-secondary/50">
+						<PackageOpen class="h-7 w-7 text-muted-foreground" />
+					</div>
+					<div class="text-center">
+						<p class="text-sm font-medium text-foreground">
+							Preview not available
+						</p>
+						<p class="mt-1 text-xs text-muted-foreground">
+							{props.file.name}
+						</p>
+					</div>
+				</div>
+			</Show>
 		</div>
 	);
 }

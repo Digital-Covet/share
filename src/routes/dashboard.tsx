@@ -113,7 +113,7 @@ export default function Dashboard() {
       const res = await fetch(apiUrl(`/api/files/${fileId}/update-expiry`), {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ expiresAt: timestamp }),
+        body: JSON.stringify({ expiresAt: timestamp, isOneTime: display === "Upon DL" }),
       });
 
       if (!res.ok) {
@@ -131,6 +131,8 @@ export default function Dashboard() {
             } else if (display === "Never") {
               updatedStatus = "Active";
             } else if (f.status === "Expired" && timestamp > Date.now()) {
+              updatedStatus = "Active";
+            } else if (f.status === "One-Time" && display !== "Upon DL") {
               updatedStatus = "Active";
             }
 

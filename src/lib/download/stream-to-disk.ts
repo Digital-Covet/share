@@ -15,12 +15,13 @@ async function fetchPresignedUrl(
 	fileId: string,
 	chunkIndex: number,
 	preview: boolean,
+	sessionId: string | undefined,
 	signal?: AbortSignal,
-): Promise<{ url: string; range: string }> {
+): Promise<{ url: string; range: string; sessionId?: string }> {
 	const res = await fetch(apiUrl(`/api/files/${fileId}/download-urls`), {
 		method: "POST",
 		headers: { "Content-Type": "application/json", Accept: "application/json" },
-		body: JSON.stringify({ chunkIndices: [chunkIndex], preview }),
+		body: JSON.stringify({ chunkIndices: [chunkIndex], preview, sessionId }),
 		signal,
 	});
 
@@ -34,8 +35,15 @@ async function fetchPresignedUrl(
 		throw new Error(msg);
 	}
 
-	const { urls } = (await res.json()) as { urls: { url: string; range: string }[] };
-	return { url: urls[0].url, range: urls[0].range };
+	const body = (await res.json()) as {
+		urls: { url: string; range: string }[];
+		sessionId?: string;
+	};
+	return {
+		url: body.urls[0].url,
+		range: body.urls[0].range,
+		sessionId: body.sessionId,
+	};
 }
 
 async function fetchChunkBytes(url: string, range: string, signal?: AbortSignal): Promise<Uint8Array> {
@@ -92,6 +100,7 @@ export async function streamDownloadToDisk(
 	});
 
 	const writable = await fileHandle.createWritable();
+	let sessionId: string | undefined;
 
 	try {
 		for (let i = 0; i < meta.total_chunks; i++) {
@@ -99,8 +108,12 @@ export async function streamDownloadToDisk(
 
 			onProgress?.({ type: "progress", chunkIndex: i, loaded: 0, total: meta.chunk_size });
 
-			const { url, range } = await fetchPresignedUrl(meta.fileId, i, false, signal);
-			const encrypted = await fetchChunkBytes(url, range, signal);
+			const result = await fetchPresignedUrl(meta.fileId, i, false, sessionId, signal);
+			if (result.sessionId) {
+				sessionId = result.sessionId;
+			}
+
+			const encrypted = await fetchChunkBytes(result.url, result.range, signal);
 
 			onProgress?.({ type: "progress", chunkIndex: i, loaded: encrypted.byteLength, total: encrypted.byteLength });
 			onProgress?.({ type: "decrypting", chunkIndex: i });
@@ -129,14 +142,19 @@ export async function streamDownloadToBlob(
 	const key = await importKeyFromBase64Url(keyBase64Url);
 	const parts: Uint8Array[] = [];
 	let totalBytes = 0;
+	let sessionId: string | undefined;
 
 	for (let i = 0; i < meta.total_chunks; i++) {
 		if (signal?.aborted) break;
 
 		onProgress?.({ type: "progress", chunkIndex: i, loaded: 0, total: meta.chunk_size });
 
-		const { url, range } = await fetchPresignedUrl(meta.fileId, i, false, signal);
-		const encrypted = await fetchChunkBytes(url, range, signal);
+		const result = await fetchPresignedUrl(meta.fileId, i, false, sessionId, signal);
+		if (result.sessionId) {
+			sessionId = result.sessionId;
+		}
+
+		const encrypted = await fetchChunkBytes(result.url, result.range, signal);
 
 		onProgress?.({ type: "progress", chunkIndex: i, loaded: encrypted.byteLength, total: encrypted.byteLength });
 		onProgress?.({ type: "decrypting", chunkIndex: i });

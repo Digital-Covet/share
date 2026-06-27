@@ -4,6 +4,7 @@ import { requireUser } from "@/lib/auth.server";
 
 const BodySchema = z.object({
 	expiresAt: z.number().int().positive(),
+	isOneTime: z.boolean().optional().default(false),
 });
 
 export async function POST({
@@ -25,7 +26,7 @@ export async function POST({
 		);
 	}
 
-	const { expiresAt } = parsed.data;
+	const { expiresAt, isOneTime } = parsed.data;
 
 	const file = await prisma.file.findUnique({
 		where: { id: fileID },
@@ -56,6 +57,24 @@ export async function POST({
 
 	const newExpiresAt = new Date(expiresAt);
 
+	const shareLinkData: {
+		expiresAt: Date;
+		isOneTime?: boolean;
+		consumedAt?: null;
+		downloadCount?: number;
+		maxDownloads?: number | null;
+	} = { expiresAt: newExpiresAt };
+
+	if (isOneTime) {
+		shareLinkData.isOneTime = true;
+		shareLinkData.consumedAt = null;
+		shareLinkData.downloadCount = 0;
+		shareLinkData.maxDownloads = 1;
+	} else {
+		shareLinkData.isOneTime = false;
+		shareLinkData.maxDownloads = null;
+	}
+
 	await prisma.$transaction([
 		prisma.file.update({
 			where: { id: file.id },
@@ -63,7 +82,7 @@ export async function POST({
 		}),
 		prisma.shareLink.updateMany({
 			where: { fileId: file.id, status: "ACTIVE" },
-			data: { expiresAt: newExpiresAt },
+			data: shareLinkData,
 		}),
 	]);
 

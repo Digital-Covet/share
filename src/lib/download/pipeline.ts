@@ -78,56 +78,65 @@ export async function* downloadPipeline(
   signal?: AbortSignal,
   preview = false,
 ): AsyncGenerator<DownloadProgress, DownloadResult> {
-  const key = await importKeyFromBase64Url(keyBase64Url);
-  const parts: Uint8Array[] = [];
-  let totalBytes = 0;
+	const key = await importKeyFromBase64Url(keyBase64Url);
+	const parts: Uint8Array[] = [];
+	let totalBytes = 0;
+	let sessionId: string | undefined;
 
-  for (const index of chunkIndices) {
-    onProgress?.({
-      type: "progress",
-      chunkIndex: index,
-      loaded: 0,
-      total: meta.chunk_size,
-    });
+	for (const index of chunkIndices) {
+		onProgress?.({
+			type: "progress",
+			chunkIndex: index,
+			loaded: 0,
+			total: meta.chunk_size,
+		});
 
-    const presignedRes = await fetch(
-      apiUrl(`/api/files/${meta.fileId}/download-urls`),
-      {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Accept: "application/json",
-        },
-        body: JSON.stringify({ chunkIndices: [index], preview }),
-        signal,
-      },
-    );
+		const presignedRes = await fetch(
+			apiUrl(`/api/files/${meta.fileId}/download-urls`),
+			{
+				method: "POST",
+				headers: {
+					"Content-Type": "application/json",
+					Accept: "application/json",
+				},
+				body: JSON.stringify({ chunkIndices: [index], preview, sessionId }),
+				signal,
+			},
+		);
 
-    const ct = presignedRes.headers.get("Content-Type") || "";
-    const isJson = ct.includes("application/json");
+		const ct = presignedRes.headers.get("Content-Type") || "";
+		const isJson = ct.includes("application/json");
 
-    if (!presignedRes.ok || !isJson) {
-      let msg = `Failed to get download URL for chunk ${index} (HTTP ${presignedRes.status})`;
-      if (isJson) {
-        const body = await presignedRes.json().catch(() => ({}));
-        msg = (body as any)?.error ?? msg;
-      } else if (ct.includes("text/html")) {
-        msg = `Received HTML instead of JSON for chunk ${index} URL.`;
-      }
-      throw new Error(msg);
-    }
+		if (!presignedRes.ok || !isJson) {
+			let msg = `Failed to get download URL for chunk ${index} (HTTP ${presignedRes.status})`;
+			if (isJson) {
+				const body = await presignedRes.json().catch(() => ({}));
+				msg = (body as any)?.error ?? msg;
+			} else if (ct.includes("text/html")) {
+				msg = `Received HTML instead of JSON for chunk ${index} URL.`;
+			}
+			throw new Error(msg);
+		}
 
-    let urlsData: { urls: { index: number; url: string; range: string }[] };
-    try {
-      urlsData = (await presignedRes.json()) as {
-        urls: { index: number; url: string; range: string }[];
-      };
-    } catch {
-      throw new Error(`Failed to parse JSON response for chunk ${index} URL.`);
-    }
+		let urlsData: {
+			urls: { index: number; url: string; range: string }[];
+			sessionId?: string;
+		};
+		try {
+			urlsData = (await presignedRes.json()) as {
+				urls: { index: number; url: string; range: string }[];
+				sessionId?: string;
+			};
+		} catch {
+			throw new Error(`Failed to parse JSON response for chunk ${index} URL.`);
+		}
 
-    const [{ url, range }] = urlsData.urls;
-    const encrypted = await fetchChunk(url, range, signal);
+		if (urlsData.sessionId) {
+			sessionId = urlsData.sessionId;
+		}
+
+		const [{ url, range }] = urlsData.urls;
+		const encrypted = await fetchChunk(url, range, signal);
 
     onProgress?.({
       type: "progress",
