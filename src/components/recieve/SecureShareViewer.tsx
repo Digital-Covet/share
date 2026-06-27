@@ -1,4 +1,4 @@
-import { Download, Loader2, Lock, Shield, ShieldCheck } from "lucide-solid";
+import { Download, Loader2, Shield, ShieldCheck } from "lucide-solid";
 import { createSignal, Show } from "solid-js";
 
 import { ActionButton } from "@/components/recieve/ActionButton";
@@ -37,10 +37,10 @@ export default function SecureShareViewer() {
 				<div class="absolute left-0 top-0 h-1 w-full bg-gradient-to-r from-transparent via-primary to-transparent opacity-50" />
 
 				<div class="flex min-h-[360px] flex-col p-8">
-					<div class="mb-6 flex items-center gap-2 text-muted-foreground">
-						<IconSpan icon={Lock} class="h-4 w-4" />
-						<span class="text-label">End-to-End Encrypted Transfer</span>
-					</div>
+				<div class="mb-6 flex items-center gap-2 text-muted-foreground">
+					<IconSpan icon={Shield} class="h-4 w-4" />
+					<span class="text-label">Secure File Transfer</span>
+				</div>
 
 					<Show when={state() !== "extracted"}>
 						<FileInfoPanel />
@@ -61,17 +61,17 @@ export default function SecureShareViewer() {
 								/>
 							}
 						>
-							<ActionButton
-								icon={state() === "decrypting" ? Loader2 : ShieldCheck}
-								label={
-									state() === "decrypting"
-										? "Decrypting & Unzipping..."
-										: "Unlock & Extract Files"
-								}
-								disabled={state() === "decrypting"}
-								loading={state() === "decrypting"}
-								onClick={handleUnlock}
-							/>
+						<ActionButton
+							icon={state() === "decrypting" ? Loader2 : ShieldCheck}
+							label={
+								state() === "decrypting"
+									? "Extracting..."
+									: "Extract Files"
+							}
+							disabled={state() === "decrypting"}
+							loading={state() === "decrypting"}
+							onClick={handleUnlock}
+						/>
 						</Show>
 					</div>
 				</div>
