@@ -47,7 +47,7 @@ enum ReportReason {
 
 model File {
   id             String      @id @default(cuid())
-  userId         String?
+  userId         String
   fileName       String
   mimeType       String
   originalSize   BigInt
@@ -55,6 +55,8 @@ model File {
   chunkSize      Int         @default(5242880)
   totalChunks    Int
   ivBaseHash     String
+  ivBase         String?
+  encryptionKey  String?
   r2Key          String      @unique
   status         FileStatus  @default(PENDING)
   // NULL = never expire (authenticated internal uploads only).
