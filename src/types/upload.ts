@@ -7,7 +7,6 @@ export interface FileMetadata {
 
 export interface ShareData {
 	url: string;
-	key: string;
 }
 
 export interface SecuritySettings {
@@ -25,5 +24,7 @@ export interface InitiateUploadResponse {
 
 export interface CompleteUploadResponse {
 	fileId: string;
-	shareLink: { id: string; expiresAt: string };
+	status: string;
+	encryptedSize: string | null;
+	shareLink: { id: string; expiresAt: string | null };
 }

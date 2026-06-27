@@ -4,7 +4,8 @@ export type FileStatus =
 	| "Pending"
 	| "Expired"
 	| "Consumed"
-	| "Revoked";
+	| "Revoked"
+	| "Deleted";
 export type FileType = "pdf" | "zip" | "document" | "image" | "spreadsheet";
 
 export interface FileItem {
@@ -17,6 +18,7 @@ export interface FileItem {
 	expiryTimestamp: number;
 	downloads: number;
 	type: FileType;
+	shareLinkId: string | null;
 }
 
 export interface DashboardStats {
