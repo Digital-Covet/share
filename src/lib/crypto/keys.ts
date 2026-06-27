@@ -9,7 +9,7 @@ export async function generateMasterKey(): Promise<CryptoKey> {
 	return crypto.subtle.generateKey(ALGORITHM, true, KEY_USAGES);
 }
 
-function bufferToBase64Url(buffer: ArrayBuffer): string {
+export function bufferToBase64Url(buffer: ArrayBuffer): string {
 	const bytes = new Uint8Array(buffer);
 	let binary = "";
 	for (const byte of bytes) {
@@ -21,7 +21,7 @@ function bufferToBase64Url(buffer: ArrayBuffer): string {
 		.replaceAll("=", "");
 }
 
-function base64UrlToBuffer(base64url: string): ArrayBuffer {
+export function base64UrlToBuffer(base64url: string): ArrayBuffer {
 	const padded = base64url.replaceAll("-", "+").replaceAll("_", "/");
 	const padLen = (4 - (padded.length % 4)) % 4;
 	const binary = padded + "=".repeat(padLen);
