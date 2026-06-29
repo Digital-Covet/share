@@ -165,6 +165,7 @@ export default function Dashboard() {
     try {
       const res = await fetch(apiUrl(`/api/files/${fileId}/delete`), {
         method: "POST",
+        credentials: "include",
       });
 
       if (!res.ok) {

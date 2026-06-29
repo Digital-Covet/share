@@ -5,6 +5,13 @@ import { ActionButton } from "@/components/recieve/ActionButton";
 import { ExtractedFiles } from "@/components/recieve/ExtractedFiles";
 import { FileInfoPanel } from "@/components/recieve/FileInfoPanel";
 import { IconSpan } from "@/components/recieve/IconSpan";
+import type { FileItem } from "@/types/recieve";
+
+const MOCK_FILES: FileItem[] = [
+	{ id: "1", name: "Strategy_Deck.pdf", type: "PDF", size: "2.4 MB", sizeBytes: 2516582, receivedDate: "Jun 10, 2026", downloads: 0 },
+	{ id: "2", name: "Launch_Banner.png", type: "Image", size: "5.1 MB", sizeBytes: 5347737, receivedDate: "Jun 10, 2026", downloads: 0 },
+	{ id: "3", name: "Budget_Q3.xlsx", type: "Spreadsheet", size: "768 KB", sizeBytes: 786432, receivedDate: "Jun 9, 2026", downloads: 0 },
+];
 
 type ViewerState = "ready" | "decrypting" | "extracted";
 
@@ -43,11 +50,11 @@ export default function SecureShareViewer() {
 				</div>
 
 					<Show when={state() !== "extracted"}>
-						<FileInfoPanel />
+						<FileInfoPanel fileCount={14} totalSize="2.1 GB" />
 					</Show>
 
 					<Show when={state() === "extracted"}>
-						<ExtractedFiles viewMode="list" selected={new Set<string>()} onToggleSelect={() => {}} onSelectAll={() => {}} onClearSelection={() => {}} />
+						<ExtractedFiles files={MOCK_FILES} viewMode="list" selected={new Set<string>()} onToggleSelect={() => {}} onSelectAll={() => {}} onClearSelection={() => {}} />
 					</Show>
 
 					<div class="mt-auto">

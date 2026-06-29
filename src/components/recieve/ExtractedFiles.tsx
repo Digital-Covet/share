@@ -1,11 +1,12 @@
 import { For, Show } from "solid-js";
 import { Check } from "lucide-solid";
 
-import { FILES } from "@/data/recieve";
+import type { FileItem } from "@/types/recieve";
 import { FileListItem } from "./FileListItem";
 import { IconSpan } from "./IconSpan";
 
 interface ExtractedFilesProps {
+	files: FileItem[];
 	viewMode: "list" | "grid";
 	selected: Set<string>;
 	onToggleSelect: (name: string) => void;
@@ -15,7 +16,7 @@ interface ExtractedFilesProps {
 
 export const ExtractedFiles = (props: ExtractedFilesProps) => {
 	const allSelected = () => {
-		const names = FILES.map((f) => f.name);
+		const names = props.files.map((f) => f.name);
 		return names.every((name) => props.selected.has(name));
 	};
 
@@ -30,7 +31,7 @@ export const ExtractedFiles = (props: ExtractedFilesProps) => {
 	if (props.viewMode === "grid") {
 		return (
 			<div class="grid grid-cols-2 gap-3 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5">
-				<For each={FILES}>
+				<For each={props.files}>
 					{(file) => (
 						<FileListItem
 							file={file}
@@ -81,7 +82,7 @@ export const ExtractedFiles = (props: ExtractedFilesProps) => {
 					</tr>
 				</thead>
 				<tbody>
-					<For each={FILES}>
+					<For each={props.files}>
 						{(file) => (
 							<FileListItem
 								file={file}

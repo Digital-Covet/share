@@ -1,6 +1,6 @@
-import { Download, Eye, Check } from "lucide-solid";
+import { Download, Eye, Check, FileText, Image, Table, File, FileArchive } from "lucide-solid";
 import type { Component } from "solid-js";
-import { Show } from "solid-js";
+import { Show, Match, Switch } from "solid-js";
 import { DownloadTrigger } from "@ark-ui/solid/download-trigger";
 
 import type { FileItem } from "@/types/recieve";
@@ -14,7 +14,39 @@ interface FileListItemProps {
 }
 
 export const FileListItem: Component<FileListItemProps> = (props) => {
-	const Icon = props.file.icon;
+	const renderIcon = (type: string, classStr: string) => (
+		<Switch>
+			<Match when={type === "PDF"}>
+				<IconSpan icon={FileText} class={classStr} />
+			</Match>
+			<Match when={type === "Image"}>
+				<IconSpan icon={Image} class={classStr} />
+			</Match>
+			<Match when={type === "Spreadsheet"}>
+				<IconSpan icon={Table} class={classStr} />
+			</Match>
+			<Match when={type === "Archive"}>
+				<IconSpan icon={FileArchive} class={classStr} />
+			</Match>
+			<Match when={type === "Text"}>
+				<IconSpan icon={File} class={classStr} />
+			</Match>
+			<Match when={true}>
+				<IconSpan icon={File} class={classStr} />
+			</Match>
+		</Switch>
+	);
+
+	const iconColorClass = (type: string): string => {
+		switch (type) {
+			case "PDF": return "text-primary";
+			case "Image": return "text-accent-foreground";
+			case "Spreadsheet": return "text-green-500";
+			case "Archive": return "text-yellow-500";
+			case "Text": return "text-muted-foreground";
+			default: return "text-muted-foreground";
+		}
+	};
 
 	if (props.viewMode === "grid") {
 		return (
@@ -39,7 +71,7 @@ export const FileListItem: Component<FileListItemProps> = (props) => {
 				</button>
 
 				<div class="mb-3 flex h-14 w-14 items-center justify-center rounded-xl bg-secondary/50">
-					<Icon class={`h-7 w-7 ${props.file.iconClass}`} />
+					{renderIcon(props.file.type, `h-7 w-7 ${iconColorClass(props.file.type)}`)}
 				</div>
 
 				<span class="mb-1 w-full truncate text-center text-sm font-medium text-foreground">
@@ -90,7 +122,7 @@ export const FileListItem: Component<FileListItemProps> = (props) => {
 			<td class="px-4 py-3">
 				<div class="flex items-center gap-3">
 					<div class="flex h-8 w-8 items-center justify-center rounded-lg bg-secondary/50">
-						<Icon class={`h-4 w-4 ${props.file.iconClass}`} />
+						{renderIcon(props.file.type, `h-4 w-4 ${iconColorClass(props.file.type)}`)}
 					</div>
 					<span class="text-sm font-medium text-foreground">
 						{props.file.name}
