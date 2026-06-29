@@ -94,7 +94,7 @@ export function FileTable(props: FileTableProps) {
 
 							{/* Rows */}
 							<div class="divide-y divide-outline-variant/30" role="rowgroup">
-								<For each={pagination().slice(props.files)}>
+								<For each={props.files.slice((pagination().page - 1) * itemsPerPage, pagination().page * itemsPerPage)}>
 									{(file) => {
 										const fileInfo = getFileInfo(file.type);
 										const Icon = fileInfo.icon;
