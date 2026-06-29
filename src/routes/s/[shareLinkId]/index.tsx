@@ -16,7 +16,7 @@ const MAX_PASSWORD_ATTEMPTS = 3;
 type PageState =
   | { status: "loading" }
   | { status: "ready"; data: FileMetaResponse }
-  | { status: "password"; fileId: string }
+  | { status: "password"; shareLinkId: string }
   | { status: "invalid"; message: string }
   | { status: "expired" }
   | { status: "notfound" }
@@ -30,18 +30,18 @@ interface MetaResult {
 }
 
 interface SharePageProps {
-  params: { fileId: string };
+  params: { shareLinkId: string };
 }
 
 const SharePage: Component<SharePageProps> = (props) => {
-  const fileId = props.params.fileId;
+  const shareLinkId = props.params.shareLinkId;
 
   const [password, setPassword] = createSignal("");
   const [attemptCount, setAttemptCount] = createSignal(0);
 
   const [metaResult, { refetch }] = createResource<MetaResult, string>(
     password,
-    async (pw) => fetchFileMeta(fileId, pw),
+    async (pw) => fetchFileMeta(shareLinkId, pw),
   );
 
   const pageState = createMemo<PageState>(() => {
@@ -66,7 +66,7 @@ const SharePage: Component<SharePageProps> = (props) => {
       case 401:
         return {
           status: "password",
-          fileId,
+          shareLinkId,
         };
 
       case 403:
@@ -117,7 +117,7 @@ const SharePage: Component<SharePageProps> = (props) => {
       case "password":
         return (
           <PasswordPrompt
-            fileId={state.fileId}
+            shareLinkId={state.shareLinkId}
             attemptsRemaining={attemptsRemaining()}
             lockedOut={lockedOut()}
             onSubmit={submitPassword}
@@ -230,7 +230,7 @@ const ReadyView: Component<{ data: FileMetaResponse }> = (props) => {
 };
 
 interface PasswordPromptProps {
-  fileId: string;
+  shareLinkId: string;
   attemptsRemaining: number;
   lockedOut: boolean;
   onSubmit: (pw: string) => void;

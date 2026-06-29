@@ -10,6 +10,7 @@ import {
   bufferToBase64Url,
 } from "@/lib/crypto";
 import type {
+  CompleteUploadResponse,
   FileMetadata,
   InitiateUploadResponse,
   Phase,
@@ -261,9 +262,7 @@ const SecureUpload: Component = () => {
       );
 
       if (!completeRes.ok) throw new Error("Finalize failed");
-      const completeData: {
-        shareLink: { id: string; expiresAt: string | null };
-      } = await completeRes.json();
+      const completeData: CompleteUploadResponse = await completeRes.json();
 
       const archiveMeta: FileMetadata = {
         name: archiveName,
