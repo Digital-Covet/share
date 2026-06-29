@@ -1,4 +1,5 @@
 import { CircleAlert, Eye, KeyRound, LoaderCircle, Shield, ShieldOff } from "lucide-solid";
+import { Meta, Title } from "@solidjs/meta";
 import {
   type Component,
   createMemo,
@@ -10,6 +11,7 @@ import {
 import { FilePreview } from "~/components/recieve/FilePreview";
 import { type FileMetaResponse, fetchFileMeta } from "~/lib/api/meta";
 import { base64UrlToBuffer } from "~/lib/crypto";
+import { pageMetadata } from "@/lib/seo";
 
 const MAX_PASSWORD_ATTEMPTS = 3;
 
@@ -164,6 +166,8 @@ const SharePage: Component<SharePageProps> = (props) => {
 
   return (
     <main class="mx-auto max-w-3xl p-6">
+      <Title>{pageMetadata.shareLink.title}</Title>
+      <Meta name="description" content={pageMetadata.shareLink.description} />
       <Suspense fallback={<LoadingView />}>{renderState()}</Suspense>
     </main>
   );

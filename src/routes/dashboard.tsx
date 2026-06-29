@@ -1,5 +1,6 @@
-import { Title } from "@solidjs/meta";
+import { Meta, Title } from "@solidjs/meta";
 import { LoaderCircle } from "lucide-solid";
+import { pageMetadata } from "@/lib/seo";
 import {
   createEffect,
   createMemo,
@@ -234,10 +235,11 @@ export default function Dashboard() {
     return result;
   });
 
-  return (
-    <AuthGuard>
-      <>
-        <Title>Dashboard</Title>
+	return (
+		<AuthGuard>
+			<>
+				<Title>{pageMetadata.dashboard.title}</Title>
+				<Meta name="description" content={pageMetadata.dashboard.description} />
         <div class="flex h-screen">
           <Sidebar />
           <main class="flex-1 overflow-auto px-6">

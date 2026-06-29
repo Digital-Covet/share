@@ -1,10 +1,12 @@
-import { Title } from "@solidjs/meta";
+import { Meta, Title } from "@solidjs/meta";
 import TwoFactorVerify from "@/components/auth/two-factor-verify";
+import { pageMetadata } from "@/lib/seo";
 
 export default function Verify2FAPage() {
-  return (
-    <>
-      <Title>Verify 2FA | Secure Login</Title>
+	return (
+		<>
+			<Title>{pageMetadata.verify2fa.title}</Title>
+			<Meta name="description" content={pageMetadata.verify2fa.description} />
       <div class="flex min-h-screen items-center justify-center p-4">
         <div class="w-full max-w-md space-y-6 p-8 shadow-md">
           <div class="text-center">

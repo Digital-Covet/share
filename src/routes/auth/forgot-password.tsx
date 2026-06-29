@@ -1,9 +1,11 @@
 import { Field } from "@ark-ui/solid/field";
 import { A } from "@solidjs/router";
+import { Meta, Title } from "@solidjs/meta";
 import { ArrowLeft, Mail, X } from "lucide-solid";
 import { type Component, createSignal, type JSX, Show } from "solid-js";
 import { authToaster, AuthToaster } from "@/components/auth/auth-toaster";
 import { authClient } from "@/lib/auth-client";
+import { pageMetadata } from "@/lib/seo";
 
 const linkClass = "font-medium text-foreground hover:text-muted-foreground";
 
@@ -48,8 +50,10 @@ const ForgotPasswordForm: Component = () => {
     }
   };
 
-  return (
-    <main class="h-screen w-screen flex items-center justify-center">
+	return (
+		<main class="h-screen w-screen flex items-center justify-center">
+			<Title>{pageMetadata.forgotPassword.title}</Title>
+			<Meta name="description" content={pageMetadata.forgotPassword.description} />
       <div class="max-w-md p-8 mx-auto shadow bg-linear-180 outline outline-border from-muted to-background rounded-xl">
         <div class="text-center lg:text-balance">
           <h1 class="font-heading text-xl md:text-2xl lg:text-3xl font-semibold tracking-tight text-foreground">

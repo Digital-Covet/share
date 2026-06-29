@@ -1,10 +1,12 @@
-import { Title } from "@solidjs/meta";
+import { Meta, Title } from "@solidjs/meta";
 import { HttpStatusCode } from "@solidjs/start";
+import { pageMetadata } from "@/lib/seo";
 
 export default function NotFound() {
 	return (
 		<main>
-			<Title>Not Found</Title>
+			<Title>{pageMetadata.notFound.title}</Title>
+			<Meta name="description" content={pageMetadata.notFound.description} />
 			<HttpStatusCode code={404} />
 			<h1>Page Not Found</h1>
 			<p>

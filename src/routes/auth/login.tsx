@@ -1,9 +1,11 @@
 import { Field } from "@ark-ui/solid/field";
 import { A, useNavigate } from "@solidjs/router";
+import { Meta, Title } from "@solidjs/meta";
 import { Eye, EyeOff, Mail, X } from "lucide-solid";
 import { createSignal, type JSX, Show } from "solid-js";
 import { authToaster, AuthToaster } from "@/components/auth/auth-toaster";
 import { authClient } from "@/lib/auth-client";
+import { pageMetadata } from "@/lib/seo";
 
 export default function LoginForm() {
   const navigate = useNavigate();
@@ -52,8 +54,10 @@ export default function LoginForm() {
     }
   };
 
-  return (
-    <main class="h-screen w-screen flex items-center justify-center">
+	return (
+		<main class="h-screen w-screen flex items-center justify-center">
+			<Title>{pageMetadata.login.title}</Title>
+			<Meta name="description" content={pageMetadata.login.description} />
       <div class="max-w-md p-8 mx-auto bg-card text-card-foreground rounded-xl shadow-md">
         <div class="text-center">
           <h2 class="text-xl md:text-2xl lg:text-3xl font-semibold tracking-tight text-foreground font-heading">

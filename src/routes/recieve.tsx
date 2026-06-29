@@ -1,10 +1,11 @@
 import { DownloadTrigger } from "@ark-ui/solid/download-trigger";
-import { Title } from "@solidjs/meta";
+import { Meta, Title } from "@solidjs/meta";
 import {
 	Download,
 	LoaderCircle,
 	X,
 } from "lucide-solid";
+import { pageMetadata } from "@/lib/seo";
 import {
 	createMemo,
 	createResource,
@@ -99,7 +100,8 @@ export default function Recieve() {
 	return (
 		<AuthGuard>
 			<>
-				<Title>Shared Files</Title>
+				<Title>{pageMetadata.receive.title}</Title>
+				<Meta name="description" content={pageMetadata.receive.description} />
 				<div class="flex h-screen">
 					<Sidebar />
 					<main class="flex-1 overflow-auto">

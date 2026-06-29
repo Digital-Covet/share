@@ -1,10 +1,12 @@
 import { Field } from "@ark-ui/solid/field";
 import { PasswordInput } from "@ark-ui/solid/password-input";
 import { A, useNavigate } from "@solidjs/router";
+import { Meta, Title } from "@solidjs/meta";
 import { EyeIcon, EyeOffIcon } from "lucide-solid";
 import { createSignal, onMount, Show } from "solid-js";
 import { AuthToaster, authToaster } from "@/components/auth/auth-toaster";
 import { authClient } from "@/lib/auth-client";
+import { pageMetadata } from "@/lib/seo";
 
 export default function ResetPasswordForm() {
   const navigate = useNavigate();
@@ -79,8 +81,10 @@ export default function ResetPasswordForm() {
     }
   };
 
-  return (
-    <main class="h-screen w-screen flex items-center justify-center">
+	return (
+		<main class="h-screen w-screen flex items-center justify-center">
+			<Title>{pageMetadata.resetPassword.title}</Title>
+			<Meta name="description" content={pageMetadata.resetPassword.description} />
       <div class="max-w-md p-8 mx-auto shadow bg-linear-180 border border-border from-muted to-background rounded-xl">
         <div class="text-center lg:text-balance">
           <h2 class="text-xl md:text-2xl lg:text-3xl font-semibold tracking-tight text-foreground font-heading">
