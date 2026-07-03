@@ -1,10 +1,5 @@
 import { createMiddleware } from "@solidjs/start/middleware";
-import { z } from "zod";
-import { auth } from "@/lib/auth";
 import { hashIp } from "@/lib/ip-hash";
-import type { AuthUser } from "@/types/auth";
-
-const UserRoleSchema = z.enum(["employee", "admin", "superadmin"]).catch("employee");
 
 const R2_ENDPOINT = "https://63a1e79156c2df895c7be8b7506e2fcb.r2.cloudflarestorage.com";
 
@@ -27,32 +22,11 @@ export default createMiddleware({
   onRequest: async (event) => {
     const headers = new Headers(event.request.headers);
 
-    let user: AuthUser | null = null;
-    try {
-      const session = await auth.api.getSession({ headers });
-      if (session?.user) {
-        const u = session.user;
-        user = {
-          id: u.id,
-          email: u.email,
-          name: u.name,
-          image: (u.image as string | null | undefined) ?? null,
-          role: UserRoleSchema.parse(u.role),
-          departmentId: (u.departmentId as string | null | undefined) ?? null,
-          emailVerified: u.emailVerified ?? false,
-          twoFactorEnabled: u.twoFactorEnabled ?? false,
-          passwordChanged: (u.passwordChanged as boolean | undefined) ?? false,
-        };
-      }
-    } catch {
-      // Invalid/expired session — treat as anon
-    }
-
     const forwarded = headers.get("x-forwarded-for");
     const ip = forwarded?.split(",")[0]?.trim() ?? "0.0.0.0";
     const ipHash = await hashIp(ip);
 
-    event.locals.user = user;
+    event.locals.user = null;
     event.locals.ipHash = ipHash;
   },
   onBeforeResponse: (event) => {

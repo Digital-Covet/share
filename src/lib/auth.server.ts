@@ -1,17 +1,18 @@
 import { getRequestEvent } from "solid-js/web";
-import { z } from "zod";
-import type { AuthUser, UserRole } from "@/types/auth";
 import { auth } from "./auth";
 
-const UserRoleSchema = z
-  .enum(["employee", "admin", "superadmin"])
-  .catch("employee");
+export interface AuthUser {
+  id: string;
+  email: string;
+  name: string;
+  image: string | null;
+}
 
-const ROLE_LEVEL: Record<UserRole, number> = {
-  employee: 0,
-  admin: 1,
-  superadmin: 2,
-};
+/**
+ * The `id` field is the `userId` claim extracted from the central ID Token
+ * (via the getUserInfo callback in auth.ts). All local ACL/permission
+ * checks resolve identity against this central userId claim.
+ */
 
 type SessionHeaderSource = Request;
 
@@ -46,11 +47,6 @@ export async function getCurrentUser(
     email: u.email,
     name: u.name,
     image: (u.image as string | null | undefined) ?? null,
-    role: UserRoleSchema.parse(u.role),
-    departmentId: (u.departmentId as string | null | undefined) ?? null,
-    emailVerified: u.emailVerified ?? false,
-    twoFactorEnabled: u.twoFactorEnabled ?? false,
-    passwordChanged: (u.passwordChanged as boolean | undefined) ?? false,
   };
 }
 
@@ -59,16 +55,5 @@ export async function requireUser(
 ): Promise<AuthUser> {
   const user = await getCurrentUser(source);
   if (!user) throw new Error("UNAUTHORIZED");
-  return user;
-}
-
-export async function requireRole(
-  minRole: UserRole,
-  source?: SessionHeaderSource,
-): Promise<AuthUser> {
-  const user = await requireUser(source);
-  if (ROLE_LEVEL[user.role] < ROLE_LEVEL[minRole]) {
-    throw new Error("FORBIDDEN");
-  }
   return user;
 }

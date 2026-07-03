@@ -1,8 +1,7 @@
 import { getRequestEvent } from "solid-js/web";
-import type { AuthUser } from "@/types/auth";
 
 export interface ServerContext {
-	user: AuthUser | null;
+	user: null;
 	ipHash: string;
 }
 
@@ -13,7 +12,7 @@ export function getServerContext(): ServerContext {
 	if (!event) return EMPTY;
 
 	return {
-		user: (event.locals.user as AuthUser | null) ?? null,
+		user: null,
 		ipHash: (event.locals.ipHash as string) ?? "",
 	};
 }

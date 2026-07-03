@@ -25,19 +25,7 @@ export const pageMetadata = {
   },
   login: {
     title: "Sign In | Send Digital Covet",
-    description: "Sign in to your Send Digital Covet account to manage your secure file transfers.",
-  },
-  forgotPassword: {
-    title: "Forgot Password | Send Digital Covet",
-    description: "Reset your password to regain access to your secure file sharing account.",
-  },
-  resetPassword: {
-    title: "Reset Password | Send Digital Covet",
-    description: "Create a new password for your Send Digital Covet account.",
-  },
-  verify2fa: {
-    title: "Two-Factor Verification | Send Digital Covet",
-    description: "Complete two-factor authentication to access your account.",
+    description: "Sign in to your Digital Covet account to manage secure file transfers.",
   },
   notFound: {
     title: "Page Not Found | Send Digital Covet",
