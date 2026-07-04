@@ -1,5 +1,4 @@
 import { getRequestEvent } from "solid-js/web";
-import { auth } from "./auth";
 
 export interface AuthUser {
   id: string;
@@ -8,11 +7,7 @@ export interface AuthUser {
   image: string | null;
 }
 
-/**
- * The `id` field is the `userId` claim extracted from the central ID Token
- * (via the getUserInfo callback in auth.ts). All local ACL/permission
- * checks resolve identity against this central userId claim.
- */
+const AUTH_BASE_URL = process.env.BETTER_AUTH_URL ?? "https://iam.digitalcovet.com";
 
 type SessionHeaderSource = Request;
 
@@ -31,7 +26,17 @@ export async function getSession(source?: SessionHeaderSource) {
   const headers = buildSessionHeaders(source);
   if (!headers) return null;
 
-  return auth.api.getSession({ headers });
+  const cookie = headers.get("cookie");
+  if (!cookie) return null;
+
+  const res = await fetch(`${AUTH_BASE_URL}/api/auth/get-session`, {
+    headers: { cookie },
+  });
+
+  if (!res.ok) return null;
+
+  const data = await res.json();
+  return data?.session ? data : null;
 }
 
 export async function getCurrentUser(
