@@ -10,7 +10,7 @@ import {
   onMount,
   Show,
 } from "solid-js";
-import { isServer } from "solid-js/web";
+import { isServer, getRequestEvent } from "solid-js/web";
 import { createAsync, query, redirect } from "@solidjs/router";
 import { DashboardHeader } from "@/components/dashboard/DashboardHeader";
 import { DeleteConfirmModal } from "@/components/dashboard/DeleteConfirmModal";
@@ -29,7 +29,9 @@ const requireAuth = query(async () => {
   "use server";
   const session = await getSession();
   if (!session?.user) {
-    throw redirect(`${IAM_LOGIN_URL}/auth/login?redirect=${encodeURIComponent("/dashboard")}`);
+    const event = getRequestEvent();
+    const currentUrl = event?.request.url ?? "https://share.digitalcovet.com/dashboard";
+    throw redirect(`${IAM_LOGIN_URL}/auth/login?redirect=${encodeURIComponent(currentUrl)}`);
   }
   return session.user;
 }, "requireAuth");

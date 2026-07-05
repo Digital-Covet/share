@@ -1,4 +1,5 @@
 import { Meta, Title } from "@solidjs/meta";
+import { getRequestEvent } from "solid-js/web";
 import { createAsync, query, redirect } from "@solidjs/router";
 import { Sidebar } from "@/components/sidebar/Sidebar";
 import SecureUpload from "@/components/upload/SecureUpload";
@@ -11,7 +12,9 @@ const requireAuth = query(async () => {
   "use server";
   const session = await getSession();
   if (!session?.user) {
-    throw redirect(`${IAM_LOGIN_URL}/auth/login?redirect=${encodeURIComponent("/upload")}`);
+    const event = getRequestEvent();
+    const currentUrl = event?.request.url ?? "https://share.digitalcovet.com/upload";
+    throw redirect(`${IAM_LOGIN_URL}/auth/login?redirect=${encodeURIComponent(currentUrl)}`);
   }
   return session.user;
 }, "requireAuth");

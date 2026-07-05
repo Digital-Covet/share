@@ -4,7 +4,10 @@ import { pageMetadata } from "@/lib/seo";
 const IAM_BASE_URL = import.meta.env.VITE_BETTER_AUTH_URL ?? "https://iam.digitalcovet.com";
 
 export default function LoginRedirect() {
-  const redirectUrl = `${IAM_BASE_URL}/auth/login?redirect=${encodeURIComponent(`${window.location.origin}/dashboard`)}`;
+  const params = new URLSearchParams(window.location.search);
+  const originalRedirect = params.get("redirect");
+  const target = originalRedirect || `${window.location.origin}/dashboard`;
+  const redirectUrl = `${IAM_BASE_URL}/auth/login?redirect=${encodeURIComponent(target)}`;
 
   return (
     <>
