@@ -7,7 +7,7 @@ export default function Home() {
 		<>
 			<Title>{pageMetadata.home.title}</Title>
 			<Meta name="description" content={pageMetadata.home.description} />
-			<Navigate href="/auth/login" />
+			<Navigate href="/dashboard" />
 		</>
 	);
 }

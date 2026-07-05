@@ -1,7 +1,8 @@
-import { useNavigate } from "@solidjs/router";
 import { LogOut } from "lucide-solid";
 import { createSignal } from "solid-js";
 import { authClient } from "@/lib/auth-client";
+
+const IAM_BASE_URL = import.meta.env.VITE_BETTER_AUTH_URL ?? "https://iam.digitalcovet.com";
 
 interface SignOutButtonProps {
 	class?: string;
@@ -10,7 +11,6 @@ interface SignOutButtonProps {
 }
 
 export default function SignOutButton(props: SignOutButtonProps) {
-	const navigate = useNavigate();
 	const [isLoading, setIsLoading] = createSignal(false);
 
 	const handleSignOut = async () => {
@@ -20,12 +20,13 @@ export default function SignOutButton(props: SignOutButtonProps) {
 			await authClient.signOut({
 				fetchOptions: {
 					onSuccess: () => {
-						navigate("/auth/login", { replace: true });
+						window.location.href = `${IAM_BASE_URL}/auth/login`;
 					},
 				},
 			});
 		} catch (error) {
 			console.error("Sign out failed:", error);
+			window.location.href = `${IAM_BASE_URL}/auth/login`;
 		} finally {
 			setIsLoading(false);
 		}

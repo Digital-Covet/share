@@ -1,48 +1,14 @@
-import { useNavigate } from "@solidjs/router";
-import { createSignal, type JSX, onCleanup, onMount, Show } from "solid-js";
-import { authClient } from "@/lib/auth-client";
+import { type JSX, Show } from "solid-js";
 
 interface AuthGuardProps {
   children: JSX.Element;
-  redirectTo?: string;
+  isChecking?: boolean;
 }
 
 export default function AuthGuard(props: AuthGuardProps) {
-  const navigate = useNavigate();
-  const [isChecking, setIsChecking] = createSignal(true);
-
-  onMount(() => {
-    let cancelled = false;
-
-    void (async () => {
-      try {
-        const session = await authClient.getSession();
-        if (cancelled) return;
-
-        if (!session.data) {
-          navigate(props.redirectTo ?? "/auth/login", { replace: true });
-          return;
-        }
-      } catch {
-        if (!cancelled) {
-          navigate(props.redirectTo ?? "/auth/login", { replace: true });
-        }
-        return;
-      } finally {
-        if (!cancelled) {
-          setIsChecking(false);
-        }
-      }
-    })();
-
-    onCleanup(() => {
-      cancelled = true;
-    });
-  });
-
   return (
     <Show
-      when={!isChecking()}
+      when={!props.isChecking}
       fallback={
         <div class="flex h-screen items-center justify-center">Loading...</div>
       }

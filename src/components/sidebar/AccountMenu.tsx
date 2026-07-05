@@ -1,10 +1,10 @@
 import { Menu } from "@ark-ui/solid/menu";
-import { useNavigate } from "@solidjs/router";
 import { ChevronDown, Settings, User } from "lucide-solid";
 import { type Component, createSignal, onMount, Show } from "solid-js";
 import { authClient } from "@/lib/auth-client";
 
 const PORTFOLIO_API_BASE = "https://portfolio.digitalcovet.com/api/public/file";
+const IAM_BASE_URL = import.meta.env.VITE_BETTER_AUTH_URL ?? "https://iam.digitalcovet.com";
 
 function getAvatarUrl(imageKey: string | null): string | null {
   if (!imageKey) return null;
@@ -12,7 +12,6 @@ function getAvatarUrl(imageKey: string | null): string | null {
 }
 
 export const AccountMenu: Component = () => {
-  const navigate = useNavigate();
   const [user, setUser] = createSignal<{
     name: string;
     email: string;
@@ -38,8 +37,11 @@ export const AccountMenu: Component = () => {
   });
 
   const handleSignOut = async () => {
-    await authClient.signOut();
-    navigate("/auth/login");
+    try {
+      await authClient.signOut();
+    } finally {
+      window.location.href = `${IAM_BASE_URL}/auth/login`;
+    }
   };
 
   const menuItems = [
