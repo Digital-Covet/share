@@ -20,10 +20,12 @@ const CSP = [
 ].join("; ");
 
 const IAM_LOGIN_URL = process.env.BETTER_AUTH_URL ?? "https://iam.digitalcovet.com";
-const PROTECTED_PREFIXES = ["/dashboard", "/upload"];
+const PROTECTED_ROUTES = ["/dashboard", "/upload"];
 
 function isProtectedRoute(pathname: string): boolean {
-  return PROTECTED_PREFIXES.some(
+  if (pathname === "/") return true;
+
+  return PROTECTED_ROUTES.some(
     (prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`),
   );
 }

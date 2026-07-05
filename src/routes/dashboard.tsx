@@ -11,7 +11,7 @@ import {
   Show,
 } from "solid-js";
 import { isServer } from "solid-js/web";
-import AuthGuard from "@/components/auth/auth-guard";
+import { createAsync, query, redirect } from "@solidjs/router";
 import { DashboardHeader } from "@/components/dashboard/DashboardHeader";
 import { DeleteConfirmModal } from "@/components/dashboard/DeleteConfirmModal";
 import { EditExpiryModal } from "@/components/dashboard/EditExpiryModal";
@@ -20,7 +20,19 @@ import { StatsOverview } from "@/components/dashboard/StatOverview";
 import { Toast } from "@/components/dashboard/Toast";
 import { Sidebar } from "@/components/sidebar/Sidebar";
 import { apiUrl } from "@/lib/api/url";
+import { getSession } from "@/lib/auth.server";
 import type { FileItem } from "@/types/dashboard";
+
+const IAM_LOGIN_URL = process.env.BETTER_AUTH_URL ?? "https://iam.digitalcovet.com";
+
+const requireAuth = query(async () => {
+  "use server";
+  const session = await getSession();
+  if (!session?.user) {
+    throw redirect(`${IAM_LOGIN_URL}/auth/login?redirect=${encodeURIComponent("/dashboard")}`);
+  }
+  return session.user;
+}, "requireAuth");
 
 async function fetchFiles(): Promise<FileItem[]> {
   if (isServer) return [];
@@ -31,6 +43,7 @@ async function fetchFiles(): Promise<FileItem[]> {
 }
 
 export default function Dashboard() {
+  const _user = createAsync(() => requireAuth());
   const [files, setFiles] = createSignal<FileItem[]>([]);
   const [remoteFiles, { refetch }] = createResource(fetchFiles);
   const isLoading = () => remoteFiles.loading && !remoteFiles();
@@ -236,10 +249,9 @@ export default function Dashboard() {
   });
 
 	return (
-		<AuthGuard>
-			<>
-				<Title>{pageMetadata.dashboard.title}</Title>
-				<Meta name="description" content={pageMetadata.dashboard.description} />
+		<>
+			<Title>{pageMetadata.dashboard.title}</Title>
+			<Meta name="description" content={pageMetadata.dashboard.description} />
         <div class="flex h-screen">
           <Sidebar />
           <main class="flex-1 overflow-auto px-6">
@@ -307,7 +319,6 @@ export default function Dashboard() {
             />
           </main>
         </div>
-      </>
-    </AuthGuard>
+    </>
   );
 }
