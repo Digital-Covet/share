@@ -19,7 +19,6 @@ const CSP = [
   "form-action 'self'",
 ].join("; ");
 
-const IAM_LOGIN_URL = process.env.BETTER_AUTH_URL ?? "https://iam.digitalcovet.com";
 const PROTECTED_ROUTES = ["/dashboard", "/upload"];
 
 function isProtectedRoute(pathname: string): boolean {
@@ -48,23 +47,14 @@ export default createMiddleware({
       return;
     }
 
-    if (url.pathname === "/auth/login") {
-      const originalRedirect = url.searchParams.get("redirect");
-      const target = originalRedirect || `${url.origin}/dashboard`;
-      const redirectUrl = `${IAM_LOGIN_URL}/auth/login?redirect=${encodeURIComponent(target)}`;
-      return new Response(null, {
-        status: 302,
-        headers: { Location: redirectUrl },
-      });
-    }
-
     if (isProtectedRoute(url.pathname)) {
       const session = await getSession(event.request);
       if (!session?.user) {
-        const redirectUrl = `${IAM_LOGIN_URL}/auth/login?redirect=${encodeURIComponent(url.href)}`;
+        const loginUrl = new URL("/auth/login", url.origin);
+        loginUrl.searchParams.set("redirect", url.href);
         return new Response(null, {
           status: 302,
-          headers: { Location: redirectUrl },
+          headers: { Location: loginUrl.href },
         });
       }
       event.locals.user = session.user;

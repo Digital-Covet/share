@@ -2,9 +2,9 @@ import { Menu } from "@ark-ui/solid/menu";
 import { ChevronDown, Settings, User } from "lucide-solid";
 import { type Component, createSignal, onMount, Show } from "solid-js";
 import { authClient } from "@/lib/auth-client";
+import { ROUTES } from "@/lib/constants";
 
 const PORTFOLIO_API_BASE = "https://portfolio.digitalcovet.com/api/public/file";
-const IAM_BASE_URL = import.meta.env.VITE_BETTER_AUTH_URL ?? "https://iam.digitalcovet.com";
 
 function getAvatarUrl(imageKey: string | null): string | null {
   if (!imageKey) return null;
@@ -40,7 +40,7 @@ export const AccountMenu: Component = () => {
     try {
       await authClient.signOut();
     } finally {
-      window.location.href = `${IAM_BASE_URL}/auth/login`;
+      window.location.href = ROUTES.LOGIN;
     }
   };
 

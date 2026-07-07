@@ -53,6 +53,9 @@ importers:
       fflate:
         specifier: ^0.8.3
         version: 0.8.3
+      jose:
+        specifier: ^6.2.3
+        version: 6.2.3
       lucide-solid:
         specifier: ^1.17.0
         version: 1.17.0(solid-js@1.9.11)

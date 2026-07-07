@@ -6,15 +6,13 @@ import SecureUpload from "@/components/upload/SecureUpload";
 import { pageMetadata } from "@/lib/seo";
 import { getSession } from "@/lib/auth.server";
 
-const IAM_LOGIN_URL = process.env.BETTER_AUTH_URL ?? "https://iam.digitalcovet.com";
-
 const requireAuth = query(async () => {
   "use server";
   const session = await getSession();
   if (!session?.user) {
     const event = getRequestEvent();
     const currentUrl = event?.request.url ?? "https://share.digitalcovet.com/upload";
-    throw redirect(`${IAM_LOGIN_URL}/auth/login?redirect=${encodeURIComponent(currentUrl)}`);
+    throw redirect(`/auth/login?redirect=${encodeURIComponent(currentUrl)}`);
   }
   return session.user;
 }, "requireAuth");

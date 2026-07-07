@@ -3,14 +3,17 @@
 	"type": "module",
 	"scripts": {
 		"dev": "vite dev",
-		"build": "prisma generate --schema=prisma/project.prisma && vite build",
+		"build": "prisma generate --schema=prisma/auth.prisma && prisma generate --schema=prisma/project.prisma && vite build",
 		"start": "vite start",
 		"preview": "vite preview",
 		"format": "biome format --write",
 		"lint": "biome lint --write",
-		"generate": "prisma generate --schema=prisma/project.prisma",
+		"generate": "prisma generate --schema=prisma/auth.prisma && prisma generate --schema=prisma/project.prisma",
+		"generate:auth": "prisma generate --schema=prisma/auth.prisma",
 		"generate:project": "prisma generate --schema=prisma/project.prisma",
+		"migrate:auth": "prisma migrate dev --schema=prisma/auth.prisma --config=prisma/auth.config.ts",
 		"migrate:project": "prisma migrate dev --schema=prisma/project.prisma",
+		"deploy:auth": "prisma migrate deploy --schema=prisma/auth.prisma --config=prisma/auth.config.ts",
 		"deploy:project": "prisma migrate deploy --schema=prisma/project.prisma"
 	},
 	"dependencies": {
@@ -29,6 +32,7 @@
 		"better-auth": "^1.6.18",
 		"dotenv": "^17.4.2",
 		"fflate": "^0.8.3",
+		"jose": "^6.2.3",
 		"lucide-solid": "^1.17.0",
 		"pg": "^8.21.0",
 		"solid-js": "^1.9.5",
