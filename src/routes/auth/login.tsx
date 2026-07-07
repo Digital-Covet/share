@@ -1,12 +1,14 @@
+import { useLocation } from "@solidjs/router";
 import { Meta, Title } from "@solidjs/meta";
 import { pageMetadata } from "@/lib/seo";
 
 const IAM_BASE_URL = import.meta.env.VITE_BETTER_AUTH_URL ?? "https://iam.digitalcovet.com";
 
 export default function LoginRedirect() {
-  const params = new URLSearchParams(window.location.search);
+  const location = useLocation();
+  const params = new URLSearchParams(location.search);
   const originalRedirect = params.get("redirect");
-  const target = originalRedirect || `${window.location.origin}/dashboard`;
+  const target = originalRedirect || `${location.origin}/dashboard`;
   const redirectUrl = `${IAM_BASE_URL}/auth/login?redirect=${encodeURIComponent(target)}`;
 
   return (
