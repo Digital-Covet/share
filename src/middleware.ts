@@ -48,6 +48,16 @@ export default createMiddleware({
       return;
     }
 
+    if (url.pathname === "/auth/login") {
+      const originalRedirect = url.searchParams.get("redirect");
+      const target = originalRedirect || `${url.origin}/dashboard`;
+      const redirectUrl = `${IAM_LOGIN_URL}/auth/login?redirect=${encodeURIComponent(target)}`;
+      return new Response(null, {
+        status: 302,
+        headers: { Location: redirectUrl },
+      });
+    }
+
     if (isProtectedRoute(url.pathname)) {
       const session = await getSession(event.request);
       if (!session?.user) {
