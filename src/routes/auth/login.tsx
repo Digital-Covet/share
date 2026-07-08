@@ -1,9 +1,11 @@
 import { useSearchParams } from "@solidjs/router";
 import { Meta, Title } from "@solidjs/meta";
-import { createSignal, onMount, Show } from "solid-js";
+import { createSignal, onCleanup, onMount, Show } from "solid-js";
 import { authClient } from "@/lib/auth-client";
 import { APP_DOMAIN, ROUTES } from "@/lib/constants";
 import { pageMetadata } from "@/lib/seo";
+
+const DEFAULT_RETRY_AFTER = 10;
 
 function resolveCallbackUrl(rawRedirect: string | undefined): string {
 	if (rawRedirect) {
@@ -24,6 +26,46 @@ export default function LoginPage() {
 	const [searchParams] = useSearchParams();
 	const [error, setError] = createSignal<string | null>(null);
 	const [isRedirecting, setIsRedirecting] = createSignal(true);
+	const [retryAfter, setRetryAfter] = createSignal(0);
+
+	let countdownTimer: ReturnType<typeof setInterval> | undefined;
+
+	const startCountdown = (seconds: number) => {
+		setRetryAfter(seconds);
+		clearInterval(countdownTimer);
+		countdownTimer = setInterval(() => {
+			setRetryAfter((prev) => {
+				if (prev <= 1) {
+					clearInterval(countdownTimer);
+					return 0;
+				}
+				return prev - 1;
+			});
+		}, 1000);
+	};
+
+	onCleanup(() => clearInterval(countdownTimer));
+
+	const attemptSignIn = async (callbackURL: string) => {
+		const response = await authClient.signIn.oauth2({
+			providerId: "share",
+			callbackURL,
+		});
+
+		if (response.error) {
+			const msg = response.error.message ?? "Unable to sign in.";
+			const status = (response.error as { status?: number }).status;
+
+			if (status === 429) {
+				startCountdown(DEFAULT_RETRY_AFTER);
+				setError("Rate limited. Please wait before retrying.");
+			} else {
+				setError(msg);
+			}
+			setIsRedirecting(false);
+			return;
+		}
+	};
 
 	onMount(async () => {
 		const rawRedirect = searchParams.redirect;
@@ -39,18 +81,7 @@ export default function LoginPage() {
 				return;
 			}
 
-			const response = await authClient.signIn.oauth2({
-				providerId: "share",
-				callbackURL,
-			});
-
-			if (response.error) {
-				setError(
-					response.error.message ??
-						"Unable to sign in. Please try again or contact support.",
-				);
-				setIsRedirecting(false);
-			}
+			await attemptSignIn(callbackURL);
 		} catch {
 			setError("An unexpected error occurred. Please try again.");
 			setIsRedirecting(false);
@@ -58,6 +89,8 @@ export default function LoginPage() {
 	});
 
 	const handleRetry = async () => {
+		if (retryAfter() > 0) return;
+
 		setError(null);
 		setIsRedirecting(true);
 
@@ -68,18 +101,7 @@ export default function LoginPage() {
 		const callbackURL = resolveCallbackUrl(redirectParam);
 
 		try {
-			const response = await authClient.signIn.oauth2({
-				providerId: "share",
-				callbackURL,
-			});
-
-			if (response.error) {
-				setError(
-					response.error.message ??
-						"Unable to sign in. Please try again or contact support.",
-				);
-				setIsRedirecting(false);
-			}
+			await attemptSignIn(callbackURL);
 		} catch {
 			setError("An unexpected error occurred. Please try again.");
 			setIsRedirecting(false);
@@ -100,13 +122,22 @@ export default function LoginPage() {
 								<Show when={error()}>
 									<p class="text-sm text-red-600">{error()}</p>
 								</Show>
-								<button
-									type="button"
-									onClick={handleRetry}
-									class="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground"
+								<Show
+									when={retryAfter() > 0}
+									fallback={
+										<button
+											type="button"
+											onClick={handleRetry}
+											class="rounded-md bg-primary px-4 py-2 text-sm font-medium text-primary-foreground"
+										>
+											Try again
+										</button>
+									}
 								>
-									Try again
-								</button>
+									<p class="text-sm text-muted-foreground">
+										Retry in {retryAfter()}s...
+									</p>
+								</Show>
 							</div>
 						}
 					>
