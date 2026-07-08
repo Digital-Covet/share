@@ -31,10 +31,7 @@ const appUrl = (
 
 export const auth = betterAuth({
 	secret: authSecret,
-	baseURL: {
-		allowedHosts: ["share.digitalcovet.com", "localhost:5173"],
-		protocol: process.env.NODE_ENV === "production" ? "https" : "http",
-	},
+	baseURL: appUrl,
 	trustedOrigins: [
 		"https://iam.digitalcovet.com",
 		"https://share.digitalcovet.com",
@@ -85,8 +82,9 @@ export const auth = betterAuth({
 							}
 						}
 
+						const accessToken = tokens.accessToken ?? (tokens as any).access_token;
 						const resp = await fetch(`${IAM_URL}/api/auth/oauth2/userinfo`, {
-							headers: { Authorization: `Bearer ${tokens.accessToken}` },
+							headers: { Authorization: `Bearer ${accessToken}` },
 						});
 						const data = await resp.json();
 
