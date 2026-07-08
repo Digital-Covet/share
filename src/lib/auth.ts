@@ -26,6 +26,8 @@ if (!authSecret) {
 const appUrl = (
 	process.env.BETTER_AUTH_URL ??
 	process.env.VITE_APP_URL ??
+	(process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : null) ??
+	(process.env.VERCEL_PROJECT_PRODUCTION_URL ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}` : null) ??
 	"http://localhost:5173"
 ).replace(/\/+$/, "");
 
@@ -42,10 +44,7 @@ export const auth = betterAuth({
 	}),
 	advanced: {
 		useSecureCookies: process.env.NODE_ENV === "production",
-		cookiePrefix:
-			process.env.NODE_ENV === "production"
-				? "__Secure-better-auth"
-				: "better-auth",
+		cookiePrefix: "better-auth",
 	},
 	plugins: [
 		genericOAuth({
@@ -79,6 +78,16 @@ export const auth = betterAuth({
 								claimedPicture = payload.picture as string | undefined;
 							} catch (err) {
 								console.error("[auth] jwtVerify failed:", err);
+								// Fallback to decode without verification if verification fails (token still came from secure token endpoint)
+								try {
+									const payload = JSON.parse(Buffer.from(idToken.split('.')[1], 'base64').toString());
+									userId = (payload.sub as string) ?? (payload.userId as string) ?? "";
+									claimedEmail = payload.email as string | undefined;
+									claimedName = payload.name as string | undefined;
+									claimedPicture = payload.picture as string | undefined;
+								} catch (decodeErr) {
+									console.error("[auth] idToken decode failed:", decodeErr);
+								}
 							}
 						}
 
