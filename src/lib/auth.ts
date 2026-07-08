@@ -26,9 +26,7 @@ if (!authSecret) {
 const appUrl = (
 	process.env.BETTER_AUTH_URL ??
 	process.env.VITE_APP_URL ??
-	(process.env.VERCEL_URL ? `https://${process.env.VERCEL_URL}` : null) ??
-	(process.env.VERCEL_PROJECT_PRODUCTION_URL ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}` : null) ??
-	"http://localhost:5173"
+	(process.env.NODE_ENV === "production" ? "https://share.digitalcovet.com" : "http://localhost:5173")
 ).replace(/\/+$/, "");
 
 export const auth = betterAuth({
