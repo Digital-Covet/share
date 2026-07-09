@@ -58,6 +58,14 @@ export const auth = betterAuth({
 					getUserInfo: async (tokens) => {
 						const idToken = tokens.raw?.id_token as string | undefined;
 
+						console.log("[auth] getUserInfo called, tokens:", {
+							hasAccessToken: !!tokens.accessToken,
+							hasIdToken: !!idToken,
+							idTokenLength: idToken?.length,
+							tokenKeys: Object.keys(tokens),
+							rawKeys: tokens.raw ? Object.keys(tokens.raw) : [],
+						});
+
 						let userId = "";
 						let claimedEmail: string | undefined;
 						let claimedName: string | undefined;

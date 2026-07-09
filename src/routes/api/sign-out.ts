@@ -32,6 +32,13 @@ export async function POST({ request }: { request: Request }) {
 		},
 	});
 
+	console.log("[sign-out] Account found:", {
+		hasAccount: !!account,
+		hasRefreshToken: !!account?.refreshToken,
+		hasIdToken: !!account?.idToken,
+		idTokenLength: account?.idToken?.length,
+	});
+
 	if (account?.refreshToken) {
 		try {
 			await fetch(`${IAM_URL}/api/auth/oauth2/revoke`, {
@@ -57,10 +64,14 @@ export async function POST({ request }: { request: Request }) {
 			endSessionUrl.searchParams.set("client_id", "share");
 			endSessionUrl.searchParams.set("post_logout_redirect_uri", `${appUrl}/auth/login`);
 
-			await fetch(endSessionUrl.toString());
+			console.log("[sign-out] Calling IAM end-session:", endSessionUrl.toString());
+			const endSessionResponse = await fetch(endSessionUrl.toString());
+			console.log("[sign-out] IAM end-session response:", endSessionResponse.status, endSessionResponse.statusText);
 		} catch (err) {
 			console.error("[sign-out] Failed to call IAM end-session:", err);
 		}
+	} else {
+		console.log("[sign-out] No idToken found in account, skipping IAM end-session");
 	}
 
 	const signOutResponse = await auth.api.signOut({
