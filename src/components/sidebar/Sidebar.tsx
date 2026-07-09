@@ -41,7 +41,7 @@ export const Sidebar: Component<SidebarProps> = (props) => {
             <span class="text-sm font-semibold text-foreground">Oxbow UI</span>
           </div>
           <Collapsible.Trigger
-            class="flex items-center justify-center size-7 p-0.5 text-xs rounded-md bg-background outline outline-border hover:bg-muted text-foreground"
+            class="flex items-center justify-center size-7 p-0.5 text-xs rounded-md bg-background outline outline-border transition-colors duration-200 ease-in-out hover:bg-muted text-foreground"
             aria-label="Open navigation"
           >
             <Menu class="size-4" />

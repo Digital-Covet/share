@@ -62,7 +62,7 @@ export const AccountMenu: Component = () => {
     <Show when={!isLoading()} fallback={<div class="h-10" />}>
       <Show when={user()}>
         <Menu.Root positioning={{ placement: "top-start" }}>
-          <Menu.Trigger class="w-full flex items-center justify-between gap-3 px-3 py-2 lg:px-4 rounded-lg outline outline-border hover:bg-background/5">
+          <Menu.Trigger class="w-full flex items-center justify-between gap-3 px-3 py-2 lg:px-4 rounded-lg outline outline-border transition-colors duration-200 ease-in-out hover:bg-background/5">
             <span class="flex items-center gap-3">
               <Show
                 when={user()?.image != null}
@@ -95,7 +95,7 @@ export const AccountMenu: Component = () => {
                 {menuItems.map((item) => (
                   <Menu.Item
                     value={item.value}
-                    class="flex items-center justify-between h-9 px-2 rounded-md text-muted-foreground hover:bg-background/5"
+                    class="flex items-center justify-between h-9 px-2 rounded-md text-muted-foreground transition-colors duration-200 ease-in-out hover:bg-background/5"
                   >
                     <span class="flex items-center gap-2">
                       <item.icon class="size-4" />

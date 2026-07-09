@@ -37,7 +37,7 @@ export const NavLink: Component<NavLinkProps> = (props) => {
 		return (
 			<A
 				href={props.href}
-				class="group flex items-center justify-between h-9 px-3 rounded-md text-sm text-muted-foreground hover:bg-background/5"
+				class="group flex items-center justify-between h-9 px-3 rounded-md text-sm text-muted-foreground transition-colors duration-200 ease-in-out hover:bg-background/5"
 				activeClass="bg-background/10 text-foreground outline-border/10"
 				inactiveClass="text-muted-foreground"
 			>
@@ -50,7 +50,7 @@ export const NavLink: Component<NavLinkProps> = (props) => {
 		<button
 			type="button"
 			onClick={props.onClick}
-			class={`w-full h-9 px-3 rounded-md flex items-center justify-between text-sm outline outline-transparent hover:bg-background/5 ${
+			class={`w-full h-9 px-3 rounded-md flex items-center justify-between text-sm outline outline-transparent transition-colors duration-200 ease-in-out hover:bg-background/5 ${
 				props.active
 					? "bg-background/10 text-foreground outline-border/10"
 					: "text-muted-foreground"
