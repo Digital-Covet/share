@@ -8,6 +8,12 @@ const IAM_URL = (process.env.IAM_URL ?? "https://iam.digitalcovet.com").replace(
 
 const OAUTH_CLIENT_SECRET = process.env.OAUTH_CLIENT_SECRET ?? "";
 
+const appUrl = (
+	process.env.BETTER_AUTH_URL ??
+	process.env.VITE_APP_URL ??
+	(process.env.NODE_ENV === "production" ? "https://share.digitalcovet.com" : "http://localhost:5173")
+).replace(/\/+$/, "");
+
 export async function POST({ request }: { request: Request }) {
 	const headers = new Headers(request.headers);
 
@@ -40,6 +46,20 @@ export async function POST({ request }: { request: Request }) {
 			});
 		} catch (err) {
 			console.error("[sign-out] Failed to revoke IAM tokens:", err);
+		}
+	}
+
+	// Call IAM end-session to log out from the IAM as well (RP-Initiated Logout)
+	if (account?.idToken) {
+		try {
+			const endSessionUrl = new URL(`${IAM_URL}/api/auth/oauth2/end-session`);
+			endSessionUrl.searchParams.set("id_token_hint", account.idToken);
+			endSessionUrl.searchParams.set("client_id", "share");
+			endSessionUrl.searchParams.set("post_logout_redirect_uri", `${appUrl}/auth/login`);
+
+			await fetch(endSessionUrl.toString());
+		} catch (err) {
+			console.error("[sign-out] Failed to call IAM end-session:", err);
 		}
 	}
 
