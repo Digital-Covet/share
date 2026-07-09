@@ -1,5 +1,5 @@
 import { Menu } from "@ark-ui/solid/menu";
-import { ChevronDown, Settings, User } from "lucide-solid";
+import { ChevronDown, Settings } from "lucide-solid";
 import { type Component, createSignal, onMount, Show } from "solid-js";
 import { authClient } from "@/lib/auth-client";
 import { ROUTES } from "@/lib/constants";
@@ -45,8 +45,7 @@ export const AccountMenu: Component = () => {
   };
 
   const menuItems = [
-    { label: "View profile", icon: User, value: "profile" },
-    { label: "Account", icon: Settings, value: "account" },
+    { label: "Account Settings", icon: Settings, value: "account-settings", href: "https://iam.digitalcovet.com/account-settings" },
   ];
 
   const getInitials = (name: string) => {
@@ -95,6 +94,7 @@ export const AccountMenu: Component = () => {
                 {menuItems.map((item) => (
                   <Menu.Item
                     value={item.value}
+                    onSelect={() => { window.location.href = item.href; }}
                     class="flex items-center justify-between h-9 px-2 rounded-md text-muted-foreground transition-colors duration-200 ease-in-out hover:bg-background/5"
                   >
                     <span class="flex items-center gap-2">

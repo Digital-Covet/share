@@ -1,6 +1,5 @@
 import { LogOut } from "lucide-solid";
 import { createSignal } from "solid-js";
-import { authClient } from "@/lib/auth-client";
 import { ROUTES } from "@/lib/constants";
 
 interface SignOutButtonProps {
@@ -16,13 +15,13 @@ export default function SignOutButton(props: SignOutButtonProps) {
 		setIsLoading(true);
 
 		try {
-			await authClient.signOut({
-				fetchOptions: {
-					onSuccess: () => {
-						window.location.href = ROUTES.LOGIN;
-					},
-				},
-			});
+			const res = await fetch("/api/sign-out", { method: "POST" });
+
+			if (res.ok) {
+				window.location.href = ROUTES.LOGIN;
+			} else {
+				window.location.href = ROUTES.LOGIN;
+			}
 		} catch (error) {
 			console.error("Sign out failed:", error);
 			window.location.href = ROUTES.LOGIN;
