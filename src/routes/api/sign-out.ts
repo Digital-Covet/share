@@ -7,6 +7,9 @@ const IAM_URL = (process.env.IAM_URL ?? "https://iam.digitalcovet.com").replace(
 );
 
 const OAUTH_CLIENT_SECRET = process.env.OAUTH_CLIENT_SECRET ?? "";
+const IS_SECURE = process.env.NODE_ENV === "production";
+const COOKIE_PREFIX = IS_SECURE ? "__Secure-" : "";
+const SESSION_COOKIE = `${COOKIE_PREFIX}better-auth.session_token`;
 
 export async function POST({ request }: { request: Request }) {
 	const headers = new Headers(request.headers);
@@ -45,8 +48,15 @@ export async function POST({ request }: { request: Request }) {
 
 	await auth.api.signOut({ headers });
 
-	return new Response(JSON.stringify({ success: true }), {
+	const response = new Response(JSON.stringify({ success: true }), {
 		status: 200,
 		headers: { "Content-Type": "application/json" },
 	});
+
+	response.headers.append(
+		"Set-Cookie",
+		`${SESSION_COOKIE}=; Path=/; Expires=Thu, 01 Jan 1970 00:00:00 GMT; SameSite=Lax; ${IS_SECURE ? "Secure; " : ""}HttpOnly`,
+	);
+
+	return response;
 }
