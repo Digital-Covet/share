@@ -13,18 +13,12 @@ export default function SignOutButton(props: SignOutButtonProps) {
 
 	const handleSignOut = async () => {
 		setIsLoading(true);
-		console.log("[sign-out-button] Starting sign out");
 
 		try {
-			const res = await fetch("/api/sign-out", { method: "POST" });
-			console.log("[sign-out-button] Response status:", res.status);
-
-			const data = await res.json();
-			console.log("[sign-out-button] Response data:", data);
-
+			await fetch("/api/sign-out", { method: "POST" });
 			window.location.href = ROUTES.LOGIN;
 		} catch (error) {
-			console.error("[sign-out-button] Sign out failed:", error);
+			console.error("Sign out failed:", error);
 			window.location.href = ROUTES.LOGIN;
 		} finally {
 			setIsLoading(false);

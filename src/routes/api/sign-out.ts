@@ -12,8 +12,6 @@ export async function POST({ request }: { request: Request }) {
 	const headers = new Headers(request.headers);
 
 	const sessionResult = await auth.api.getSession({ headers });
-	console.log("[sign-out] sessionResult:", sessionResult?.session ? "found" : "null");
-
 	if (!sessionResult?.session) {
 		return new Response(JSON.stringify({ error: "Not authenticated" }), {
 			status: 401,
@@ -28,12 +26,9 @@ export async function POST({ request }: { request: Request }) {
 		},
 	});
 
-	console.log("[sign-out] account:", account ? { hasRefreshToken: !!account.refreshToken, hasIdToken: !!account.idToken } : "null");
-
 	if (account?.refreshToken) {
 		try {
-			console.log("[sign-out] Calling IAM revoke:", `${IAM_URL}/api/auth/oauth2/revoke`);
-			const revokeRes = await fetch(`${IAM_URL}/api/auth/oauth2/revoke`, {
+			await fetch(`${IAM_URL}/api/auth/oauth2/revoke`, {
 				method: "POST",
 				headers: { "Content-Type": "application/x-www-form-urlencoded" },
 				body: new URLSearchParams({
@@ -43,12 +38,9 @@ export async function POST({ request }: { request: Request }) {
 					client_secret: OAUTH_CLIENT_SECRET,
 				}),
 			});
-			console.log("[sign-out] IAM revoke response:", revokeRes.status);
 		} catch (err) {
 			console.error("[sign-out] Failed to revoke IAM tokens:", err);
 		}
-	} else {
-		console.log("[sign-out] No refresh token found, skipping IAM revoke");
 	}
 
 	await auth.api.signOut({ headers });
