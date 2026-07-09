@@ -43,10 +43,22 @@ export async function POST({ request }: { request: Request }) {
 		}
 	}
 
-	const { response } = await auth.api.signOut({
+	const signOutResponse = await auth.api.signOut({
 		headers,
-		returnHeaders: true,
+		asResponse: true,
 	});
+
+	const setCookieHeaders: string[] = [];
+	for (const [key, value] of signOutResponse.headers.entries()) {
+		if (key.toLowerCase() === "set-cookie") {
+			setCookieHeaders.push(value);
+		}
+	}
+
+	const response = new Response(null, { status: 200 });
+	for (const header of setCookieHeaders) {
+		response.headers.append("Set-Cookie", header);
+	}
 
 	return response;
 }
