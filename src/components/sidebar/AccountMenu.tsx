@@ -60,7 +60,7 @@ export const AccountMenu: Component = () => {
 		<Show when={!isLoading()} fallback={<div class="h-10" />}>
 			<Show when={user()}>
 				<Menu.Root positioning={{ placement: "top-start" }}>
-					<Menu.Trigger class="w-full flex items-center justify-between gap-3 px-3 py-2 lg:px-4 rounded-lg outline outline-border transition-colors duration-200 ease-in-out hover:bg-background/5">
+					<Menu.Trigger class="w-full flex items-center justify-between gap-3 px-3 py-2 lg:px-4 rounded-lg outline outline-border transition-colors duration-200 ease-in-out hover:bg-muted">
 						<span class="flex items-center gap-3">
 							<Show
 								when={user()?.image != null}
