@@ -2,14 +2,8 @@ import { Menu } from "@ark-ui/solid/menu";
 import { ChevronDown, Settings } from "lucide-solid";
 import { type Component, createSignal, onMount, Show } from "solid-js";
 import { authClient } from "@/lib/auth-client";
+import { resolveAvatarUrl } from "@/lib/avatar";
 import { ROUTES } from "@/lib/constants";
-
-const PORTFOLIO_API_BASE = "https://portfolio.digitalcovet.com/api/public/file";
-
-function getAvatarUrl(imageKey: string | null): string | null {
-	if (!imageKey) return null;
-	return `${PORTFOLIO_API_BASE}?key=${encodeURIComponent(imageKey)}`;
-}
 
 export const AccountMenu: Component = () => {
 	const [user, setUser] = createSignal<{
@@ -77,7 +71,7 @@ export const AccountMenu: Component = () => {
 								}
 							>
 								<img
-									src={getAvatarUrl(user()?.image ?? null) ?? ""}
+									src={resolveAvatarUrl(user()?.image) ?? ""}
 									alt="Avatar"
 									class="size-8 rounded-full"
 								/>
