@@ -326,4 +326,12 @@
 	.text-brand-black {
 		color: var(--brand-black);
 	}
+
+	button:not(:disabled),
+	[role="button"]:not(:disabled),
+	summary,
+	label[for],
+	a[href] {
+		cursor: pointer;
+	}
 }
