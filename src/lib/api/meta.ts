@@ -1,4 +1,5 @@
 import { apiUrl } from "~/lib/api/url";
+import type { UnavailableReason } from "~/types/share";
 
 export interface FileMetaResponse {
   fileId: string;
@@ -21,6 +22,7 @@ export interface MetaResult {
   status: number;
   data?: FileMetaResponse;
   error?: string;
+  reason?: UnavailableReason;
 }
 
 export async function fetchFileMeta(
@@ -45,11 +47,13 @@ export async function fetchFileMeta(
 
   if (!res.ok || !isJson) {
     let error = `Request failed with status ${res.status}`;
+    let reason: UnavailableReason | undefined;
 
     if (isJson) {
       try {
-        const body = (await res.json()) as { error?: string };
+        const body = (await res.json()) as { error?: string; reason?: UnavailableReason };
         error = body?.error ?? error;
+        reason = body?.reason;
       } catch {
         // Ignore JSON parse errors
       }
@@ -57,7 +61,7 @@ export async function fetchFileMeta(
       error = `Received HTML instead of JSON. The API endpoint may be missing or misconfigured.`;
     }
 
-    return { ok: false, status: res.status, error };
+    return { ok: false, status: res.status, error, reason };
   }
 
   try {

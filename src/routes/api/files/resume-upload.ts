@@ -12,7 +12,10 @@ const QuerySchema = z.object({
 
 export async function GET({ request, url }: { request: Request; url: URL }) {
   const user = await requireUser(request);
-  const parsed = QuerySchema.safeParse(Object.fromEntries(url.searchParams));
+  const parsed = QuerySchema.safeParse({
+    fileId: url.searchParams.get("fileId"),
+    parts: url.searchParams.getAll("parts").map(Number),
+  });
   if (!parsed.success)
     return Response.json({ error: "Invalid params" }, { status: 422 });
 

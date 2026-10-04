@@ -2,6 +2,7 @@ import { CompleteMultipartUploadCommand } from "@aws-sdk/client-s3";
 import { z } from "zod";
 import { prisma } from "@/db/project";
 import { requireUser } from "@/lib/auth.server";
+import { hashPassword } from "@/lib/crypto/password";
 import { r2 } from "@/server/r2";
 import { calculateExpiry, SecuritySettingsSchema } from "./_shared";
 
@@ -19,6 +20,11 @@ const BodySchema = z.object({
     )
     .min(1),
   security_settings: SecuritySettingsSchema,
+  is_password_protected: z.boolean().default(false),
+  password: z.string().min(1).max(128).nullable().default(null),
+}).refine((body) => !body.is_password_protected || body.password !== null, {
+  message: "Password required when protection is enabled",
+  path: ["password"],
 });
 
 export async function POST({ request }: { request: Request }) {
@@ -33,7 +39,14 @@ export async function POST({ request }: { request: Request }) {
     );
   }
 
-  const { fileId, encrypted_size, etags, security_settings } = parsed.data;
+  const {
+    fileId,
+    encrypted_size,
+    etags,
+    security_settings,
+    is_password_protected,
+    password,
+  } = parsed.data;
 
   const file = await prisma.file.findUnique({
     where: { id: fileId },
@@ -76,6 +89,8 @@ export async function POST({ request }: { request: Request }) {
   await r2.send(completeCmd);
 
   const linkExpiresAt = calculateExpiry(security_settings);
+  const passwordHash =
+    is_password_protected && password ? await hashPassword(password) : null;
 
   const [updatedFile, shareLink] = await prisma.$transaction([
     prisma.file.update({
@@ -100,6 +115,8 @@ export async function POST({ request }: { request: Request }) {
         expiresAt: linkExpiresAt,
         isOneTime: security_settings.oneTimeDownload,
         maxDownloads: security_settings.maxDownloads,
+        isPasswordProtected: passwordHash !== null,
+        passwordHash,
       },
     }),
   ]);

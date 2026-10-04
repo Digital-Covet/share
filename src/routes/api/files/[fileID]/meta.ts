@@ -3,6 +3,9 @@ import type { FileMetaResponse } from "@/lib/api/meta";
 import { verifyPassword } from "@/lib/crypto/password";
 import { bigIntReplacer } from "@/lib/dto";
 import { rateLimit } from "@/lib/rate-limit";
+import { deriveShareLinkStatus } from "@/lib/share-link";
+import type { FileStatus } from "@/types/dashboard";
+import type { UnavailableReason } from "@/types/share";
 
 const RATE_LIMIT_MAX = 10;
 const RATE_LIMIT_WINDOW_SECONDS = 60;
@@ -13,6 +16,19 @@ function getClientIP(request: Request): string {
   const xff = request.headers.get("x-forwarded-for");
   if (xff) return xff.split(",")[0].trim();
   return "unknown";
+}
+
+const UNAVAILABLE_REASON_BY_STATUS: Partial<Record<FileStatus, UnavailableReason>> = {
+  Revoked: "revoked",
+  Expired: "expired",
+  Consumed: "consumed",
+};
+
+function getUnavailableReason(
+  link: Parameters<typeof deriveShareLinkStatus>[0] & { file: { status: string } },
+): UnavailableReason | undefined {
+  if (link.file.status !== "READY") return "expired";
+  return UNAVAILABLE_REASON_BY_STATUS[deriveShareLinkStatus(link)];
 }
 
 function noStore(body: unknown, init?: ResponseInit): Response {
@@ -73,6 +89,9 @@ export async function POST({
     where: { id: fileID },
     select: {
       id: true,
+      status: true,
+      isOneTime: true,
+      consumedAt: true,
       isPasswordProtected: true,
       passwordHash: true,
       maxDownloads: true,
@@ -81,6 +100,7 @@ export async function POST({
       file: {
         select: {
           id: true,
+          status: true,
           fileName: true,
           mimeType: true,
           originalSize: true,
@@ -94,12 +114,17 @@ export async function POST({
     },
   });
 
-  console.log("PARAM", fileID);
-  console.log("LINK", link);
-  console.log("FILE", link?.file);
-
   if (!link || !link.file) {
     return noStore({ error: "Not found" }, { status: 404 });
+  }
+
+  // Checked before the password so dead links never prompt for one.
+  const unavailableReason = getUnavailableReason(link);
+  if (unavailableReason) {
+    return noStore(
+      { error: "Transfer unavailable", reason: unavailableReason },
+      { status: 410 },
+    );
   }
 
   // --- 4. Password verification (fail-closed on DB inconsistency) ---
