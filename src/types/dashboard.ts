@@ -17,6 +17,8 @@ export interface FileItem {
 	expiryDisplay: string;
 	expiryTimestamp: number;
 	downloads: number;
+	maxDownloads: number | null;
+	createdTimestamp: number;
 	type: FileType;
 	shareLinkId: string | null;
 }

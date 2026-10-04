@@ -96,6 +96,8 @@ export function mapFileToFileItem(file: FileRow): FileItem {
 		expiryDisplay: formatExpiryDisplay(primaryLink?.expiresAt ?? file.expiresAt),
 		expiryTimestamp: (primaryLink?.expiresAt ?? file.expiresAt)?.getTime() ?? 0,
 		downloads: primaryLink?.downloadCount ?? 0,
+		maxDownloads: primaryLink?.maxDownloads ?? null,
+		createdTimestamp: file.createdAt.getTime(),
 		type: deriveFileType(file.mimeType),
 		shareLinkId: primaryLink?.id ?? null,
 	};

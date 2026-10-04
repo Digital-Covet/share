@@ -1,6 +1,6 @@
-import { apiUrl } from "@/lib/api/url";
 import { decryptChunk, importKeyFromBase64Url } from "@/lib/crypto";
 import { deriveIV } from "@/lib/crypto/iv";
+import { fetchPresignedUrl } from "./presign";
 import type { FileMeta } from "./types";
 
 function encodeAAD(
@@ -9,41 +9,6 @@ function encodeAAD(
 	totalChunks: number,
 ): Uint8Array {
 	return new TextEncoder().encode(JSON.stringify({ fileId, chunkIndex, totalChunks }));
-}
-
-async function fetchPresignedUrl(
-	fileId: string,
-	chunkIndex: number,
-	preview: boolean,
-	sessionId: string | undefined,
-	signal?: AbortSignal,
-): Promise<{ url: string; range: string; sessionId?: string }> {
-	const res = await fetch(apiUrl(`/api/files/${fileId}/download-urls`), {
-		method: "POST",
-		headers: { "Content-Type": "application/json", Accept: "application/json" },
-		body: JSON.stringify({ chunkIndices: [chunkIndex], preview, sessionId }),
-		signal,
-	});
-
-	const ct = res.headers.get("Content-Type") || "";
-	if (!res.ok || !ct.includes("application/json")) {
-		let msg = `Failed to get download URL for chunk ${chunkIndex} (HTTP ${res.status})`;
-		if (ct.includes("application/json")) {
-			const body = await res.json().catch(() => ({}));
-			msg = (body as any)?.error ?? msg;
-		}
-		throw new Error(msg);
-	}
-
-	const body = (await res.json()) as {
-		urls: { url: string; range: string }[];
-		sessionId?: string;
-	};
-	return {
-		url: body.urls[0].url,
-		range: body.urls[0].range,
-		sessionId: body.sessionId,
-	};
 }
 
 async function fetchChunkBytes(url: string, range: string, signal?: AbortSignal): Promise<Uint8Array> {
@@ -60,6 +25,16 @@ export interface StreamProgress {
 	loaded?: number;
 	total?: number;
 	error?: unknown;
+}
+
+export interface StreamDownloadOptions {
+	meta: FileMeta;
+	keyBase64Url: string;
+	fileName: string;
+	ivBase: Uint8Array;
+	password?: string;
+	onProgress?: (event: StreamProgress) => void;
+	signal?: AbortSignal;
 }
 
 export function supportsFileSystemAccess(): boolean {
@@ -84,99 +59,71 @@ declare global {
 	}
 }
 
-export async function streamDownloadToDisk(
-	meta: FileMeta,
-	keyBase64Url: string,
-	fileName: string,
-	ivBase: Uint8Array,
-	onProgress?: (event: StreamProgress) => void,
-	signal?: AbortSignal,
-): Promise<void> {
+/**
+ * Yields each decrypted chunk in order. Progress events are emitted around
+ * the network and decrypt steps so callers can drive a chunk matrix.
+ */
+async function* decryptedChunks(
+	options: StreamDownloadOptions,
+): AsyncGenerator<Uint8Array> {
+	const { meta, keyBase64Url, ivBase, password, onProgress, signal } = options;
 	const key = await importKeyFromBase64Url(keyBase64Url);
+	let sessionId: string | undefined;
 
+	for (let i = 0; i < meta.total_chunks; i++) {
+		if (signal?.aborted) return;
+
+		onProgress?.({ type: "progress", chunkIndex: i, loaded: 0, total: meta.chunk_size });
+
+		const presigned = await fetchPresignedUrl({
+			fileId: meta.fileId,
+			chunkIndex: i,
+			preview: false,
+			sessionId,
+			password: sessionId ? undefined : password,
+			signal,
+		});
+		sessionId = presigned.sessionId ?? sessionId;
+
+		const encrypted = await fetchChunkBytes(presigned.url, presigned.range, signal);
+
+		onProgress?.({ type: "progress", chunkIndex: i, loaded: encrypted.byteLength, total: encrypted.byteLength });
+		onProgress?.({ type: "decrypting", chunkIndex: i });
+
+		const aad = encodeAAD(meta.fileId, i, meta.total_chunks);
+		yield await decryptChunk(key, deriveIV(ivBase, i), aad, encrypted);
+	}
+}
+
+export async function streamDownloadToDisk(options: StreamDownloadOptions): Promise<void> {
 	const fileHandle = await window.showSaveFilePicker({
-		suggestedName: fileName,
+		suggestedName: options.fileName,
 		types: [{ description: "File", accept: { "*/*": [] } }],
 	});
 
 	const writable = await fileHandle.createWritable();
-	let sessionId: string | undefined;
-
 	try {
-		for (let i = 0; i < meta.total_chunks; i++) {
-			if (signal?.aborted) break;
-
-			onProgress?.({ type: "progress", chunkIndex: i, loaded: 0, total: meta.chunk_size });
-
-			const result = await fetchPresignedUrl(meta.fileId, i, false, sessionId, signal);
-			if (result.sessionId) {
-				sessionId = result.sessionId;
-			}
-
-			const encrypted = await fetchChunkBytes(result.url, result.range, signal);
-
-			onProgress?.({ type: "progress", chunkIndex: i, loaded: encrypted.byteLength, total: encrypted.byteLength });
-			onProgress?.({ type: "decrypting", chunkIndex: i });
-
-			const iv = deriveIV(ivBase, i);
-			const aad = encodeAAD(meta.fileId, i, meta.total_chunks);
-			const plain = await decryptChunk(key, iv, aad, encrypted);
-
+		for await (const plain of decryptedChunks(options)) {
 			await writable.write(plain as unknown as BufferSource);
 		}
 	} finally {
 		await writable.close();
 	}
 
-	onProgress?.({ type: "done" });
+	options.onProgress?.({ type: "done" });
 }
 
 export async function streamDownloadToBlob(
-	meta: FileMeta,
-	keyBase64Url: string,
-	fileName: string,
-	ivBase: Uint8Array,
-	onProgress?: (event: StreamProgress) => void,
-	signal?: AbortSignal,
+	options: StreamDownloadOptions,
 ): Promise<{ blob: Blob; blobUrl: string }> {
-	const key = await importKeyFromBase64Url(keyBase64Url);
 	const parts: Uint8Array[] = [];
-	let totalBytes = 0;
-	let sessionId: string | undefined;
-
-	for (let i = 0; i < meta.total_chunks; i++) {
-		if (signal?.aborted) break;
-
-		onProgress?.({ type: "progress", chunkIndex: i, loaded: 0, total: meta.chunk_size });
-
-		const result = await fetchPresignedUrl(meta.fileId, i, false, sessionId, signal);
-		if (result.sessionId) {
-			sessionId = result.sessionId;
-		}
-
-		const encrypted = await fetchChunkBytes(result.url, result.range, signal);
-
-		onProgress?.({ type: "progress", chunkIndex: i, loaded: encrypted.byteLength, total: encrypted.byteLength });
-		onProgress?.({ type: "decrypting", chunkIndex: i });
-
-		const iv = deriveIV(ivBase, i);
-		const aad = encodeAAD(meta.fileId, i, meta.total_chunks);
-		const plain = await decryptChunk(key, iv, aad, encrypted);
-
+	for await (const plain of decryptedChunks(options)) {
 		parts.push(plain);
-		totalBytes += plain.byteLength;
 	}
 
-	const merged = new Uint8Array(totalBytes);
-	let offset = 0;
-	for (const part of parts) {
-		merged.set(part, offset);
-		offset += part.byteLength;
-	}
-
-	const blob = new Blob([merged], { type: meta.mime_type });
+	const blob = new Blob(parts as unknown as BlobPart[], { type: options.meta.mime_type });
 	const blobUrl = URL.createObjectURL(blob);
 
-	onProgress?.({ type: "done" });
+	options.onProgress?.({ type: "done" });
 	return { blob, blobUrl };
 }

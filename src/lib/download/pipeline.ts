@@ -1,6 +1,6 @@
-import { apiUrl } from "@/lib/api/url";
 import { decryptChunk, importKeyFromBase64Url } from "@/lib/crypto";
 import { deriveIV } from "@/lib/crypto/iv";
+import { fetchPresignedUrl } from "./presign";
 import type { DownloadProgress, DownloadResult, FileMeta } from "./types";
 
 function encodeAAD(
@@ -91,52 +91,16 @@ export async function* downloadPipeline(
 			total: meta.chunk_size,
 		});
 
-		const presignedRes = await fetch(
-			apiUrl(`/api/files/${meta.fileId}/download-urls`),
-			{
-				method: "POST",
-				headers: {
-					"Content-Type": "application/json",
-					Accept: "application/json",
-				},
-				body: JSON.stringify({ chunkIndices: [index], preview, sessionId }),
-				signal,
-			},
-		);
+		const presigned = await fetchPresignedUrl({
+			fileId: meta.fileId,
+			chunkIndex: index,
+			preview,
+			sessionId,
+			signal,
+		});
+		sessionId = presigned.sessionId ?? sessionId;
 
-		const ct = presignedRes.headers.get("Content-Type") || "";
-		const isJson = ct.includes("application/json");
-
-		if (!presignedRes.ok || !isJson) {
-			let msg = `Failed to get download URL for chunk ${index} (HTTP ${presignedRes.status})`;
-			if (isJson) {
-				const body = await presignedRes.json().catch(() => ({}));
-				msg = (body as any)?.error ?? msg;
-			} else if (ct.includes("text/html")) {
-				msg = `Received HTML instead of JSON for chunk ${index} URL.`;
-			}
-			throw new Error(msg);
-		}
-
-		let urlsData: {
-			urls: { index: number; url: string; range: string }[];
-			sessionId?: string;
-		};
-		try {
-			urlsData = (await presignedRes.json()) as {
-				urls: { index: number; url: string; range: string }[];
-				sessionId?: string;
-			};
-		} catch {
-			throw new Error(`Failed to parse JSON response for chunk ${index} URL.`);
-		}
-
-		if (urlsData.sessionId) {
-			sessionId = urlsData.sessionId;
-		}
-
-		const [{ url, range }] = urlsData.urls;
-		const encrypted = await fetchChunk(url, range, signal);
+		const encrypted = await fetchChunk(presigned.url, presigned.range, signal);
 
     onProgress?.({
       type: "progress",

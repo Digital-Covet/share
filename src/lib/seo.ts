@@ -20,8 +20,8 @@ export const pageMetadata = {
     description: "Upload and encrypt files securely for sharing with automatic expiry.",
   },
   receive: {
-    title: "Shared Files | Send Digital Covet",
-    description: "View and download files shared with you securely.",
+    title: "Inbound Vault | Send Digital Covet",
+    description: "Review and decrypt files shared directly with your verified identity.",
   },
   login: {
     title: "Sign In | Send Digital Covet",
