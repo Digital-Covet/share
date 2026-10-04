@@ -1,88 +1,51 @@
-import { DeleteObjectCommand } from "@aws-sdk/client-s3";
-import { z } from "zod";
-import { prisma } from "@/db/project";
-import { requireUser } from "@/lib/auth.server";
-import { r2 } from "@/server/r2";
-import { r2FileKey, r2PartKey } from "@/server/r2-keys";
+import { Effect } from "effect";
+import { Auth } from "@/server/effect/auth";
+import { Database } from "@/server/effect/database";
+import { Gone } from "@/server/effect/errors";
+import { requireOwnedFile } from "@/server/effect/files";
+import { effectRoute } from "@/server/effect/route";
+import { Storage } from "@/server/effect/storage";
 
-const BUCKET = process.env.R2_BUCKET!;
+export const POST = effectRoute(
+  ({ request, params }: { request: Request; params: { fileID: string } }) =>
+    Effect.gen(function* () {
+      const user = yield* (yield* Auth).requireUser(request);
+      const db = yield* Database;
 
-export async function POST({
-	request,
-	params,
-}: {
-	request: Request;
-	params: { fileID: string };
-}) {
-	const user = await requireUser(request);
-	const { fileID } = params;
+      const found = yield* db.use("file.findForDelete", (prisma) =>
+        prisma.file.findUnique({
+          where: { id: params.fileID },
+          select: { id: true, userId: true, status: true, totalChunks: true },
+        }),
+      );
+      const file = yield* requireOwnedFile(found, user.id);
 
-	const file = await prisma.file.findUnique({
-		where: { id: fileID },
-		select: {
-			id: true,
-			userId: true,
-			status: true,
-			totalChunks: true,
-		},
-	});
+      if (file.status === "DELETED" || file.status === "REVOKED") {
+        return yield* new Gone({ message: "File already deleted" });
+      }
 
-	if (!file || file.userId !== user.id) {
-		return Response.json({ error: "File not found" }, { status: 404 });
-	}
+      const failures = yield* (yield* Storage).deleteFileObjects({
+        userId: user.id,
+        fileId: file.id,
+        totalChunks: file.totalChunks,
+      });
+      if (failures.length > 0) {
+        yield* Effect.logError(
+          `Delete file: failed to delete ${failures.length} R2 objects for file ${file.id}`,
+          failures,
+        );
+      }
 
-	if (file.status === "DELETED" || file.status === "REVOKED") {
-		return Response.json({ error: "File already deleted" }, { status: 410 });
-	}
+      yield* db.use("file.markDeleted", (prisma) =>
+        prisma.$transaction([
+          prisma.shareLink.updateMany({
+            where: { fileId: file.id, status: "ACTIVE" },
+            data: { status: "REVOKED", revokedAt: new Date() },
+          }),
+          prisma.file.update({ where: { id: file.id }, data: { status: "DELETED" } }),
+        ]),
+      );
 
-	const deleteErrors: string[] = [];
-	if (file.userId) {
-		if (file.totalChunks === 1) {
-			try {
-				await r2.send(
-					new DeleteObjectCommand({
-						Bucket: BUCKET,
-						Key: r2FileKey(file.userId, file.id),
-					}),
-				);
-			} catch (err) {
-				const msg = err instanceof Error ? err.message : String(err);
-				deleteErrors.push(`file: ${msg}`);
-			}
-		} else {
-			for (let i = 1; i <= file.totalChunks; i++) {
-				try {
-					await r2.send(
-						new DeleteObjectCommand({
-							Bucket: BUCKET,
-							Key: r2PartKey(file.userId, file.id, i),
-						}),
-					);
-				} catch (err) {
-					const msg = err instanceof Error ? err.message : String(err);
-					deleteErrors.push(`chunk ${i}: ${msg}`);
-				}
-			}
-		}
-	}
-
-	await prisma.$transaction([
-		prisma.shareLink.updateMany({
-			where: { fileId: file.id, status: "ACTIVE" },
-			data: { status: "REVOKED", revokedAt: new Date() },
-		}),
-		prisma.file.update({
-			where: { id: file.id },
-			data: { status: "DELETED" },
-		}),
-	]);
-
-	if (deleteErrors.length > 0) {
-		console.error(
-			`Delete file: failed to delete ${deleteErrors.length} R2 chunks for file ${file.id}:`,
-			deleteErrors,
-		);
-	}
-
-	return Response.json({ ok: true });
-}
+      return Response.json({ ok: true });
+    }),
+);

@@ -1,133 +1,109 @@
-import { CompleteMultipartUploadCommand } from "@aws-sdk/client-s3";
-import { z } from "zod";
-import { prisma } from "@/db/project";
-import { requireUser } from "@/lib/auth.server";
-import { hashPassword } from "@/lib/crypto/password";
-import { r2 } from "@/server/r2";
+import { Effect, Schema } from "effect";
+import { Auth } from "@/server/effect/auth";
+import { Database } from "@/server/effect/database";
+import { Conflict } from "@/server/effect/errors";
+import { requireOwnedFile } from "@/server/effect/files";
+import { hashPasswordEffect } from "@/server/effect/passwords";
+import { decodeJsonBody, effectRoute } from "@/server/effect/route";
+import {
+  FlagDefaultingToFalse,
+  isPasswordRequirementMet,
+  PasswordField,
+  PositiveInt,
+} from "@/server/effect/schemas";
+import { Storage } from "@/server/effect/storage";
 import { calculateExpiry, SecuritySettingsSchema } from "./_shared";
 
-const BUCKET = process.env.R2_BUCKET!;
-
-const BodySchema = z.object({
-  fileId: z.string().min(1),
-  encrypted_size: z.number().int().positive(),
-  etags: z
-    .array(
-      z.object({
-        partNumber: z.number().int().positive(),
-        etag: z.string().min(1),
-      }),
-    )
-    .min(1),
+const BodySchema = Schema.Struct({
+  fileId: Schema.NonEmptyString,
+  encrypted_size: PositiveInt,
+  etags: Schema.Array(
+    Schema.Struct({ partNumber: PositiveInt, etag: Schema.NonEmptyString }),
+  ).check(Schema.isMinLength(1)),
   security_settings: SecuritySettingsSchema,
-  is_password_protected: z.boolean().default(false),
-  password: z.string().min(1).max(128).nullable().default(null),
-}).refine((body) => !body.is_password_protected || body.password !== null, {
-  message: "Password required when protection is enabled",
-  path: ["password"],
-});
+  is_password_protected: FlagDefaultingToFalse,
+  password: PasswordField,
+}).check(
+  Schema.makeFilter(
+    (body) => isPasswordRequirementMet(body) || "Password required when protection is enabled",
+  ),
+);
 
-export async function POST({ request }: { request: Request }) {
-  const user = await requireUser(request);
+export const POST = effectRoute(({ request }: { request: Request }) =>
+  Effect.gen(function* () {
+    const user = yield* (yield* Auth).requireUser(request);
+    const body = yield* decodeJsonBody(request, BodySchema);
+    const db = yield* Database;
+    const storage = yield* Storage;
 
-  const raw = await request.json();
-  const parsed = BodySchema.safeParse(raw);
-  if (!parsed.success) {
-    return Response.json(
-      { error: "Invalid payload", issues: z.treeifyError(parsed.error) },
-      { status: 422 },
+    const found = yield* db.use("file.findForCompletion", (prisma) =>
+      prisma.file.findUnique({
+        where: { id: body.fileId },
+        include: { uploadSessions: { where: { status: { not: "COMPLETED" } } } },
+      }),
     );
-  }
+    const file = yield* requireOwnedFile(found, user.id);
 
-  const {
-    fileId,
-    encrypted_size,
-    etags,
-    security_settings,
-    is_password_protected,
-    password,
-  } = parsed.data;
+    if (file.status !== "PENDING") {
+      return yield* new Conflict({ message: "File is not in pending state" });
+    }
 
-  const file = await prisma.file.findUnique({
-    where: { id: fileId },
-    include: { uploadSessions: { where: { status: { not: "COMPLETED" } } } },
-  });
+    const session = file.uploadSessions[0];
+    if (!session?.multipartUploadId) {
+      return yield* new Conflict({ message: "No active upload session" });
+    }
 
-  if (!file || file.userId !== user.id) {
-    return Response.json({ error: "File not found" }, { status: 404 });
-  }
+    yield* storage.completeMultipartUpload({
+      key: file.r2Key,
+      uploadId: session.multipartUploadId,
+      parts: [...body.etags].sort((a, b) => a.partNumber - b.partNumber),
+    });
 
-  if (file.status !== "PENDING") {
-    return Response.json(
-      { error: "File is not in pending state" },
-      { status: 409 },
+    const linkExpiresAt = calculateExpiry(body.security_settings);
+    const passwordHash =
+      body.is_password_protected && body.password
+        ? yield* hashPasswordEffect(body.password)
+        : null;
+
+    const [updatedFile, shareLink] = yield* db.use("upload.complete", (prisma) =>
+      prisma.$transaction([
+        prisma.file.update({
+          where: { id: body.fileId },
+          data: {
+            status: "READY",
+            encryptedSize: BigInt(body.encrypted_size),
+            expiresAt: linkExpiresAt,
+          },
+        }),
+        prisma.uploadSession.update({
+          where: { id: session.id },
+          data: {
+            status: "COMPLETED",
+            completedPartEtags: JSON.stringify(body.etags),
+            completedAt: new Date(),
+          },
+        }),
+        prisma.shareLink.create({
+          data: {
+            fileId: body.fileId,
+            expiresAt: linkExpiresAt,
+            isOneTime: body.security_settings.oneTimeDownload,
+            maxDownloads: body.security_settings.maxDownloads,
+            isPasswordProtected: passwordHash !== null,
+            passwordHash,
+          },
+        }),
+      ]),
     );
-  }
 
-  const session = file.uploadSessions[0];
-  if (!session?.multipartUploadId) {
-    return Response.json(
-      { error: "No active upload session" },
-      { status: 409 },
-    );
-  }
-
-  const sortedParts = [...etags].sort((a, b) => a.partNumber - b.partNumber);
-
-  const completeCmd = new CompleteMultipartUploadCommand({
-    Bucket: BUCKET,
-    Key: file.r2Key,
-    UploadId: session.multipartUploadId,
-    MultipartUpload: {
-      Parts: sortedParts.map((e) => ({
-        PartNumber: e.partNumber,
-        ETag: e.etag,
-      })),
-    },
-  });
-
-  await r2.send(completeCmd);
-
-  const linkExpiresAt = calculateExpiry(security_settings);
-  const passwordHash =
-    is_password_protected && password ? await hashPassword(password) : null;
-
-  const [updatedFile, shareLink] = await prisma.$transaction([
-    prisma.file.update({
-      where: { id: fileId },
-      data: {
-        status: "READY",
-        encryptedSize: BigInt(encrypted_size),
-        expiresAt: linkExpiresAt,
+    return Response.json({
+      fileId: updatedFile.id,
+      status: updatedFile.status,
+      encryptedSize: updatedFile.encryptedSize?.toString() ?? null,
+      shareLink: {
+        id: shareLink.id,
+        expiresAt: shareLink.expiresAt?.toISOString() ?? null,
       },
-    }),
-    prisma.uploadSession.update({
-      where: { id: session.id },
-      data: {
-        status: "COMPLETED",
-        completedPartEtags: JSON.stringify(etags),
-        completedAt: new Date(),
-      },
-    }),
-    prisma.shareLink.create({
-      data: {
-        fileId,
-        expiresAt: linkExpiresAt,
-        isOneTime: security_settings.oneTimeDownload,
-        maxDownloads: security_settings.maxDownloads,
-        isPasswordProtected: passwordHash !== null,
-        passwordHash,
-      },
-    }),
-  ]);
-
-  return Response.json({
-    fileId: updatedFile.id,
-    status: updatedFile.status,
-    encryptedSize: updatedFile.encryptedSize?.toString() ?? null,
-    shareLink: {
-      id: shareLink.id,
-      expiresAt: shareLink.expiresAt?.toISOString() ?? null,
-    },
-  });
-}
+    });
+  }),
+);

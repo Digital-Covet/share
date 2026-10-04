@@ -1,93 +1,63 @@
-import { z } from "zod";
-import { prisma } from "@/db/project";
-import { requireUser } from "@/lib/auth.server";
+import { Effect, Schema } from "effect";
+import { Auth } from "@/server/effect/auth";
+import { Database } from "@/server/effect/database";
+import { Gone } from "@/server/effect/errors";
+import { requireOwnedFile } from "@/server/effect/files";
+import { decodeJsonBody, effectRoute } from "@/server/effect/route";
+import { FlagDefaultingToFalse, PositiveInt } from "@/server/effect/schemas";
 
-const BodySchema = z.object({
-	expiresAt: z.number().int().positive(),
-	isOneTime: z.boolean().optional().default(false),
+const BodySchema = Schema.Struct({
+  expiresAt: PositiveInt,
+  isOneTime: FlagDefaultingToFalse,
 });
 
-export async function POST({
-	request,
-	params,
-}: {
-	request: Request;
-	params: { fileID: string };
-}) {
-	const user = await requireUser(request);
-	const { fileID } = params;
+const IMMUTABLE_MESSAGES = {
+  DELETED: "This file has been permanently deleted and cannot be modified.",
+  REVOKED: "This file has been revoked per Zero-Trust policy and cannot be modified.",
+} as const;
 
-	const raw = await request.json();
-	const parsed = BodySchema.safeParse(raw);
-	if (!parsed.success) {
-		return Response.json(
-			{ error: "Invalid payload", issues: z.treeifyError(parsed.error) },
-			{ status: 422 },
-		);
-	}
+const shareLinkUpdateFor = (options: { expiresAt: Date; isOneTime: boolean }) =>
+  options.isOneTime
+    ? {
+        expiresAt: options.expiresAt,
+        isOneTime: true,
+        consumedAt: null,
+        downloadCount: 0,
+        maxDownloads: 1,
+      }
+    : { expiresAt: options.expiresAt, isOneTime: false, maxDownloads: null };
 
-	const { expiresAt, isOneTime } = parsed.data;
+export const POST = effectRoute(
+  ({ request, params }: { request: Request; params: { fileID: string } }) =>
+    Effect.gen(function* () {
+      const user = yield* (yield* Auth).requireUser(request);
+      const { expiresAt, isOneTime } = yield* decodeJsonBody(request, BodySchema);
+      const db = yield* Database;
 
-	const file = await prisma.file.findUnique({
-		where: { id: fileID },
-		select: {
-			id: true,
-			userId: true,
-			status: true,
-		},
-	});
+      const found = yield* db.use("file.findForExpiry", (prisma) =>
+        prisma.file.findUnique({
+          where: { id: params.fileID },
+          select: { id: true, userId: true, status: true },
+        }),
+      );
+      const file = yield* requireOwnedFile(found, user.id);
 
-	if (!file || file.userId !== user.id) {
-		return Response.json({ error: "File not found" }, { status: 404 });
-	}
+      if (file.status === "DELETED" || file.status === "REVOKED") {
+        return yield* new Gone({ message: IMMUTABLE_MESSAGES[file.status] });
+      }
 
-	if (file.status === "DELETED") {
-		return Response.json(
-			{ error: "This file has been permanently deleted and cannot be modified." },
-			{ status: 410 },
-		);
-	}
+      const newExpiresAt = new Date(expiresAt);
 
-	if (file.status === "REVOKED") {
-		return Response.json(
-			{ error: "This file has been revoked per Zero-Trust policy and cannot be modified." },
-			{ status: 410 },
-		);
-	}
+      yield* db.use("file.updateExpiry", (prisma) =>
+        prisma.$transaction([
+          prisma.file.update({ where: { id: file.id }, data: { expiresAt: newExpiresAt } }),
+          prisma.shareLink.updateMany({
+            where: { fileId: file.id, status: "ACTIVE" },
+            data: shareLinkUpdateFor({ expiresAt: newExpiresAt, isOneTime }),
+          }),
+        ]),
+      );
 
-	const newExpiresAt = new Date(expiresAt);
-
-	const shareLinkData: {
-		expiresAt: Date;
-		isOneTime?: boolean;
-		consumedAt?: null;
-		downloadCount?: number;
-		maxDownloads?: number | null;
-	} = { expiresAt: newExpiresAt };
-
-	if (isOneTime) {
-		shareLinkData.isOneTime = true;
-		shareLinkData.consumedAt = null;
-		shareLinkData.downloadCount = 0;
-		shareLinkData.maxDownloads = 1;
-	} else {
-		shareLinkData.isOneTime = false;
-		shareLinkData.maxDownloads = null;
-	}
-
-	await prisma.$transaction([
-		prisma.file.update({
-			where: { id: file.id },
-			data: { expiresAt: newExpiresAt },
-		}),
-		prisma.shareLink.updateMany({
-			where: { fileId: file.id, status: "ACTIVE" },
-			data: shareLinkData,
-		}),
-	]);
-
-	return Response.json({
-		ok: true,
-		expiresAt: newExpiresAt.toISOString(),
-	});
-}
+      return Response.json({ ok: true, expiresAt: newExpiresAt.toISOString() });
+    }),
+);

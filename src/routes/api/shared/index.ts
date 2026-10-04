@@ -1,6 +1,8 @@
-import { prisma } from "@/db/project";
-import { requireUser } from "@/lib/auth.server";
+import { Effect } from "effect";
 import { toJsonSafe } from "@/lib/dto";
+import { Auth } from "@/server/effect/auth";
+import { Database } from "@/server/effect/database";
+import { effectRoute } from "@/server/effect/route";
 
 function formatFileSize(bytes: number): string {
 	if (bytes === 0) return "0 B";
@@ -33,45 +35,49 @@ function deriveCategory(mimeType: string): string {
 	return MIME_TO_CATEGORY[base] ?? "File";
 }
 
-export async function GET({ request }: { request: Request }) {
-	const user = await requireUser(request);
+export const GET = effectRoute(({ request }: { request: Request }) =>
+	Effect.gen(function* () {
+		const user = yield* (yield* Auth).requireUser(request);
 
-	const shareLinks = await prisma.shareLink.findMany({
-		where: {
-			file: { userId: user.id },
-			status: "ACTIVE",
-		},
-		select: {
-			id: true,
-			createdAt: true,
-			downloadCount: true,
-			file: {
-				select: {
-					fileName: true,
-					mimeType: true,
-					originalSize: true,
+		const shareLinks = yield* (yield* Database).use("shareLink.listForUser", (prisma) =>
+			prisma.shareLink.findMany({
+				where: {
+					file: { userId: user.id },
+					status: "ACTIVE",
 				},
-			},
-		},
-		orderBy: { createdAt: "desc" },
-	});
-
-	const items = shareLinks.map((link) => {
-		const sizeBytes = Number(link.file.originalSize);
-		return {
-			id: link.id,
-			name: link.file.fileName,
-			type: deriveCategory(link.file.mimeType),
-			size: formatFileSize(sizeBytes),
-			sizeBytes,
-			receivedDate: link.createdAt.toLocaleDateString("en-US", {
-				month: "short",
-				day: "numeric",
-				year: "numeric",
+				select: {
+					id: true,
+					createdAt: true,
+					downloadCount: true,
+					file: {
+						select: {
+							fileName: true,
+							mimeType: true,
+							originalSize: true,
+						},
+					},
+				},
+				orderBy: { createdAt: "desc" },
 			}),
-			downloads: link.downloadCount,
-		};
-	});
+		);
 
-	return Response.json(toJsonSafe({ files: items }));
-}
+		const items = shareLinks.map((link) => {
+			const sizeBytes = Number(link.file.originalSize);
+			return {
+				id: link.id,
+				name: link.file.fileName,
+				type: deriveCategory(link.file.mimeType),
+				size: formatFileSize(sizeBytes),
+				sizeBytes,
+				receivedDate: link.createdAt.toLocaleDateString("en-US", {
+					month: "short",
+					day: "numeric",
+					year: "numeric",
+				}),
+				downloads: link.downloadCount,
+			};
+		});
+
+		return Response.json(toJsonSafe({ files: items }));
+	}),
+);

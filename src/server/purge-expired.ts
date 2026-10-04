@@ -1,154 +1,152 @@
-import {
-  AbortMultipartUploadCommand,
-  DeleteObjectCommand,
-} from "@aws-sdk/client-s3";
-import { prisma } from "@/db/project";
+import { Effect } from "effect";
+import type { Prisma } from "@generated/project/client";
 import { UPLOAD_SESSION_INACTIVITY_HOURS } from "@/lib/constants";
-import { r2 } from "./r2";
-import { r2FileKey, r2PartKey } from "./r2-keys";
+import { Database } from "./effect/database";
+import type { DatabaseError, StorageError } from "./effect/errors";
+import { Storage } from "./effect/storage";
 
-const BUCKET = process.env.R2_BUCKET!;
 const BATCH_SIZE = 100;
+const CONCURRENCY = 5;
 
-export async function purgeExpiredFiles(): Promise<{
-  filesDeleted: number;
-  sessionsAborted: number;
-  errors: string[];
-}> {
-  const errors: string[] = [];
-  let filesDeleted = 0;
-  let sessionsAborted = 0;
+export interface PurgeReport {
+  readonly filesDeleted: number;
+  readonly sessionsAborted: number;
+  readonly errors: ReadonlyArray<string>;
+}
 
-  const now = new Date();
+interface BatchOutcome {
+  readonly succeeded: number;
+  readonly errors: ReadonlyArray<string>;
+}
 
-  // 1. READY files past their expiresAt → delete R2 chunks, mark DELETED
-  const expiredReady = await prisma.file.findMany({
-    where: {
-      status: "READY",
-      expiresAt: { not: null, lt: now },
-    },
-    take: BATCH_SIZE,
-    select: { id: true, userId: true, totalChunks: true },
-  });
+const describeError = ({ operation, cause }: DatabaseError | StorageError): string =>
+  `${operation}: ${cause instanceof Error ? cause.message : String(cause)}`;
 
-  for (const file of expiredReady) {
-    try {
-      if (file.userId) {
-        if (file.totalChunks === 1) {
-          await r2.send(
-            new DeleteObjectCommand({
-              Bucket: BUCKET,
-              Key: r2FileKey(file.userId, file.id),
-            }),
-          );
-        } else {
-          for (let i = 1; i <= file.totalChunks; i++) {
-            await r2.send(
-              new DeleteObjectCommand({
-                Bucket: BUCKET,
-                Key: r2PartKey(file.userId, file.id, i),
-              }),
-            );
-          }
+/** One failing item never stops the batch; it is reported and retried on the next run. */
+const runBatch = <Item, R>(options: {
+  items: ReadonlyArray<Item>;
+  label: (item: Item) => string;
+  task: (item: Item) => Effect.Effect<void, string, R>;
+}): Effect.Effect<BatchOutcome, never, R> =>
+  Effect.forEach(
+    options.items,
+    (item) =>
+      options.task(item).pipe(
+        Effect.match({
+          onSuccess: () => undefined,
+          onFailure: (message) => `${options.label(item)}: ${message}`,
+        }),
+      ),
+    { concurrency: CONCURRENCY },
+  ).pipe(
+    Effect.map((results) => {
+      const errors = results.filter((result) => result !== undefined);
+      return { succeeded: results.length - errors.length, errors };
+    }),
+  );
+
+const purgeFilesWhere = Effect.fnUntraced(function* (options: {
+  where: Prisma.FileWhereInput;
+  label: string;
+}) {
+  const db = yield* Database;
+  const storage = yield* Storage;
+
+  const files = yield* db.use(`purge.find ${options.label}`, (prisma) =>
+    prisma.file.findMany({
+      where: options.where,
+      take: BATCH_SIZE,
+      select: { id: true, userId: true, totalChunks: true },
+    }),
+  );
+
+  return yield* runBatch({
+    items: files,
+    label: (file) => `delete ${options.label} ${file.id}`,
+    task: (file) =>
+      Effect.gen(function* () {
+        if (file.userId) {
+          const failures = yield* storage.deleteFileObjects({
+            userId: file.userId,
+            fileId: file.id,
+            totalChunks: file.totalChunks,
+          });
+          if (failures.length > 0) return yield* Effect.fail(failures.join("; "));
         }
-      }
-      await prisma.file.update({
-        where: { id: file.id },
-        data: { status: "DELETED" },
-      });
-      filesDeleted++;
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      errors.push(`delete READY ${file.id}: ${msg}`);
-    }
-  }
-
-  // 2. REVOKED files → delete R2 chunks, mark DELETED (Zero-Trust: R2 objects left intact by /delete endpoint)
-  const revokedFiles = await prisma.file.findMany({
-    where: {
-      status: "REVOKED",
-    },
-    take: BATCH_SIZE,
-    select: { id: true, userId: true, totalChunks: true },
+        yield* db
+          .use("purge.markDeleted", (prisma) =>
+            prisma.file.update({ where: { id: file.id }, data: { status: "DELETED" } }),
+          )
+          .pipe(Effect.mapError(describeError));
+      }),
   });
+});
 
-  for (const file of revokedFiles) {
-    try {
-      if (file.userId) {
-        if (file.totalChunks === 1) {
-          await r2.send(
-            new DeleteObjectCommand({
-              Bucket: BUCKET,
-              Key: r2FileKey(file.userId, file.id),
-            }),
-          );
-        } else {
-          for (let i = 1; i <= file.totalChunks; i++) {
-            await r2.send(
-              new DeleteObjectCommand({
-                Bucket: BUCKET,
-                Key: r2PartKey(file.userId, file.id, i),
-              }),
-            );
-          }
-        }
-      }
-      await prisma.file.update({
-        where: { id: file.id },
-        data: { status: "DELETED" },
-      });
-      filesDeleted++;
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      errors.push(`delete REVOKED ${file.id}: ${msg}`);
-    }
-  }
-
-  // 3. PENDING upload sessions older than INACTIVITY_HOURS → abort multipart
+const abortStaleSessions = Effect.fnUntraced(function* (now: Date) {
+  const db = yield* Database;
+  const storage = yield* Storage;
   const staleThreshold = new Date(
     now.getTime() - UPLOAD_SESSION_INACTIVITY_HOURS * 60 * 60 * 1000,
   );
 
-  const staleSessions = await prisma.uploadSession.findMany({
-    where: {
-      status: { in: ["INITIATED", "UPLOADING"] },
-      multipartUploadId: { not: null },
-      createdAt: { lt: staleThreshold },
-    },
-    take: BATCH_SIZE,
-    select: {
-      id: true,
-      fileId: true,
-      multipartUploadId: true,
-      file: { select: { r2Key: true } },
-    },
+  const sessions = yield* db.use("purge.findStaleSessions", (prisma) =>
+    prisma.uploadSession.findMany({
+      where: {
+        status: { in: ["INITIATED", "UPLOADING"] },
+        multipartUploadId: { not: null },
+        createdAt: { lt: staleThreshold },
+      },
+      take: BATCH_SIZE,
+      select: {
+        id: true,
+        fileId: true,
+        multipartUploadId: true,
+        file: { select: { r2Key: true } },
+      },
+    }),
+  );
+
+  return yield* runBatch({
+    items: sessions,
+    label: (session) => `abort session ${session.id}`,
+    task: (session) =>
+      Effect.gen(function* () {
+        yield* storage
+          .abortMultipartUpload({
+            key: session.file.r2Key,
+            uploadId: session.multipartUploadId as string,
+          })
+          .pipe(Effect.mapError(describeError));
+        yield* db
+          .use("purge.markSessionAborted", (prisma) =>
+            prisma.$transaction([
+              prisma.uploadSession.update({
+                where: { id: session.id },
+                data: { status: "ABORTED" },
+              }),
+              prisma.file.update({ where: { id: session.fileId }, data: { status: "FAILED" } }),
+            ]),
+          )
+          .pipe(Effect.mapError(describeError));
+      }),
   });
+});
 
-  for (const session of staleSessions) {
-    try {
-      await r2.send(
-        new AbortMultipartUploadCommand({
-          Bucket: BUCKET,
-          Key: session.file.r2Key,
-          UploadId: session.multipartUploadId!,
-        }),
-      );
-      await prisma.$transaction([
-        prisma.uploadSession.update({
-          where: { id: session.id },
-          data: { status: "ABORTED" },
-        }),
-        prisma.file.update({
-          where: { id: session.fileId },
-          data: { status: "FAILED" },
-        }),
-      ]);
-      sessionsAborted++;
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      errors.push(`abort session ${session.id}: ${msg}`);
-    }
-  }
+export const purgeExpiredFiles: Effect.Effect<PurgeReport, DatabaseError, Database | Storage> =
+  Effect.gen(function* () {
+    const now = new Date();
 
-  return { filesDeleted, sessionsAborted, errors };
-}
+    const expired = yield* purgeFilesWhere({
+      where: { status: "READY", expiresAt: { not: null, lt: now } },
+      label: "READY",
+    });
+    // Zero-Trust: the delete endpoint leaves R2 objects intact for REVOKED files.
+    const revoked = yield* purgeFilesWhere({ where: { status: "REVOKED" }, label: "REVOKED" });
+    const sessions = yield* abortStaleSessions(now);
+
+    return {
+      filesDeleted: expired.succeeded + revoked.succeeded,
+      sessionsAborted: sessions.succeeded,
+      errors: [...expired.errors, ...revoked.errors, ...sessions.errors],
+    };
+  });

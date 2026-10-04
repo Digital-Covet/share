@@ -1,95 +1,91 @@
-import { prisma } from "@/db/auth";
+import { Effect, Redacted } from "effect";
 import { auth } from "@/lib/auth";
+import { AppSettings, type AppSettingsShape } from "@/server/effect/config";
+import { useAuthDatabase } from "@/server/effect/auth-database";
+import { Unauthorized } from "@/server/effect/errors";
+import { effectRoute } from "@/server/effect/route";
 
-const IAM_URL = (process.env.IAM_URL ?? "https://iam.digitalcovet.com").replace(
-	/\/+$/,
-	"",
-);
+const CLIENT_ID = "share";
 
-const OAUTH_CLIENT_SECRET = process.env.OAUTH_CLIENT_SECRET ?? "";
-
-const appUrl = (
-	process.env.BETTER_AUTH_URL ??
-	process.env.VITE_APP_URL ??
-	(process.env.NODE_ENV === "production" ? "https://share.digitalcovet.com" : "http://localhost:5173")
-).replace(/\/+$/, "");
-
-export async function POST({ request }: { request: Request }) {
-	const headers = new Headers(request.headers);
-
-	const sessionResult = await auth.api.getSession({ headers });
-	if (!sessionResult?.session) {
-		return new Response(JSON.stringify({ error: "Not authenticated" }), {
-			status: 401,
-			headers: { "Content-Type": "application/json" },
-		});
-	}
-
-	const account = await prisma.account.findFirst({
-		where: {
-			userId: sessionResult.session.userId,
-			providerId: "share",
-		},
-	});
-
-	console.log("[sign-out] Account found:", {
-		hasAccount: !!account,
-		hasRefreshToken: !!account?.refreshToken,
-		hasIdToken: !!account?.idToken,
-		idTokenLength: account?.idToken?.length,
-	});
-
-	if (account?.refreshToken) {
-		try {
-			await fetch(`${IAM_URL}/api/auth/oauth2/revoke`, {
-				method: "POST",
-				headers: { "Content-Type": "application/x-www-form-urlencoded" },
-				body: new URLSearchParams({
-					token: account.refreshToken,
-					token_type_hint: "refresh_token",
-					client_id: "share",
-					client_secret: OAUTH_CLIENT_SECRET,
-				}),
-			});
-		} catch (err) {
-			console.error("[sign-out] Failed to revoke IAM tokens:", err);
-		}
-	}
-
-	// Call IAM end-session to log out from the IAM as well (RP-Initiated Logout)
-	if (account?.idToken) {
-		try {
-			const endSessionUrl = new URL(`${IAM_URL}/api/auth/oauth2/end-session`);
-			endSessionUrl.searchParams.set("id_token_hint", account.idToken);
-			endSessionUrl.searchParams.set("client_id", "share");
-			endSessionUrl.searchParams.set("post_logout_redirect_uri", `${appUrl}/auth/login`);
-
-			console.log("[sign-out] Calling IAM end-session:", endSessionUrl.toString());
-			const endSessionResponse = await fetch(endSessionUrl.toString());
-			console.log("[sign-out] IAM end-session response:", endSessionResponse.status, endSessionResponse.statusText);
-		} catch (err) {
-			console.error("[sign-out] Failed to call IAM end-session:", err);
-		}
-	} else {
-		console.log("[sign-out] No idToken found in account, skipping IAM end-session");
-	}
-
-	const signOutResponse = await auth.api.signOut({
-		headers,
-		asResponse: true,
-	});
-
-	const setCookieHeaders: string[] = [];
-	for (const [key, value] of signOutResponse.headers.entries()) {
-		if (key.toLowerCase() === "set-cookie") {
-			setCookieHeaders.push(value);
-		}
-	}
-
-	const response = new Response(null, { status: 200 });
-	for (const header of setCookieHeaders) {
-		response.headers.append("Set-Cookie", header);
-	}
-
-	return response;
+interface IamAccount {
+  readonly refreshToken: string | null;
+  readonly idToken: string | null;
 }
+
+const revokeRefreshToken = (options: { settings: AppSettingsShape; refreshToken: string }) =>
+  Effect.tryPromise(() =>
+    fetch(`${options.settings.iamUrl}/api/auth/oauth2/revoke`, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        token: options.refreshToken,
+        token_type_hint: "refresh_token",
+        client_id: CLIENT_ID,
+        client_secret: options.settings.oauthClientSecret
+          ? Redacted.value(options.settings.oauthClientSecret)
+          : "",
+      }),
+    }),
+  ).pipe(
+    Effect.catch((cause) => Effect.logError("[sign-out] Failed to revoke IAM tokens", cause)),
+  );
+
+// RP-Initiated Logout: ends the session at the IAM as well.
+const endIamSession = (options: { settings: AppSettingsShape; idToken: string }) => {
+  const url = new URL(`${options.settings.iamUrl}/api/auth/oauth2/end-session`);
+  url.searchParams.set("id_token_hint", options.idToken);
+  url.searchParams.set("client_id", CLIENT_ID);
+  url.searchParams.set("post_logout_redirect_uri", `${options.settings.appUrl}/auth/login`);
+
+  return Effect.tryPromise(() => fetch(url)).pipe(
+    Effect.flatMap((response) =>
+      Effect.logInfo("[sign-out] IAM end-session response", response.status),
+    ),
+    Effect.catch((cause) => Effect.logError("[sign-out] Failed to call IAM end-session", cause)),
+  );
+};
+
+const terminateIamSession = (options: { settings: AppSettingsShape; account: IamAccount | null }) =>
+  Effect.gen(function* () {
+    const { settings, account } = options;
+    if (account?.refreshToken) {
+      yield* revokeRefreshToken({ settings, refreshToken: account.refreshToken });
+    }
+    if (account?.idToken) {
+      yield* endIamSession({ settings, idToken: account.idToken });
+    }
+  });
+
+const setCookiesOf = (response: Response): string[] =>
+  [...response.headers.entries()]
+    .filter(([name]) => name.toLowerCase() === "set-cookie")
+    .map(([, value]) => value);
+
+export const POST = effectRoute(({ request }: { request: Request }) =>
+  Effect.gen(function* () {
+    const settings = yield* AppSettings;
+    const headers = new Headers(request.headers);
+
+    const sessionResult = yield* Effect.promise(() => auth.api.getSession({ headers }));
+    if (!sessionResult?.session) {
+      return yield* new Unauthorized({ message: "Not authenticated" });
+    }
+
+    const account = yield* useAuthDatabase("account.findIamAccount", (prisma) =>
+      prisma.account.findFirst({
+        where: { userId: sessionResult.session.userId, providerId: CLIENT_ID },
+      }),
+    );
+    yield* terminateIamSession({ settings, account });
+
+    const signOutResponse = yield* Effect.promise(() =>
+      auth.api.signOut({ headers, asResponse: true }),
+    );
+
+    const response = new Response(null, { status: 200 });
+    for (const cookie of setCookiesOf(signOutResponse)) {
+      response.headers.append("Set-Cookie", cookie);
+    }
+    return response;
+  }),
+);

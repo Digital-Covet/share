@@ -45,11 +45,3 @@ export async function getCurrentUser(
 		image: (u.image as string | null | undefined) ?? null,
 	};
 }
-
-export async function requireUser(
-	source?: SessionHeaderSource,
-): Promise<AuthUser> {
-	const user = await getCurrentUser(source);
-	if (!user) throw new Error("UNAUTHORIZED");
-	return user;
-}

@@ -38,7 +38,7 @@ Authentication is delegated to an external OpenID Connect identity provider (Dig
 | Auth | Better Auth `^1.6` (`genericOAuth`) |
 | Object storage | Cloudflare R2 via `@aws-sdk/client-s3` |
 | Compression | `fflate` |
-| Validation | `zod` |
+| Server effects & validation | `effect` (services, layers, typed errors, `Schema`) |
 | UI primitives | `@ark-ui/solid`, `lucide-solid` |
 | Tooling | Biome `2.4.16`, TypeScript `^6` |
 
@@ -130,12 +130,14 @@ The app serves at `http://localhost:5173` by default. Signing in redirects to th
 | `pnpm run preview` | Preview a production build locally. |
 | `pnpm run format` | Format with Biome. |
 | `pnpm run lint` | Lint and auto-fix with Biome. |
+| `pnpm run typecheck` | Type-check with `tsc --noEmit`. |
+| `pnpm run test` | Run the Vitest suite. |
 | `pnpm run generate` | Generate both Prisma clients. |
 | `pnpm run generate:auth` / `generate:project` | Generate one client. |
 | `pnpm run migrate:auth` / `migrate:project` | Run dev migrations. |
 | `pnpm run deploy:auth` / `deploy:project` | Deploy migrations. |
 
-There is currently **no test script** and no CI workflow in the repository.
+There is currently no CI workflow in the repository.
 
 ## How It Works
 
@@ -222,7 +224,7 @@ src/
     download/            # Download pipeline, streaming, MSE, PDF trailer
     auth.ts              # Better Auth server config (genericOAuth)
     auth-client.ts       # Better Auth solid client
-    auth.server.ts       # getSession / requireUser helpers
+    auth.server.ts       # getSession / getCurrentUser helpers
     compression.ts       # ZIP create/extract (fflate)
     constants.ts         # App constants, chunk/expiry/presign settings
     file-map.ts          # File row → dashboard DTO
@@ -235,7 +237,11 @@ src/
     dashboard.tsx        # File management
     upload.tsx           # Secure upload
     recieve.tsx          # Shared files list
-  server/                # R2 client, key layout, purge job
+  server/
+    effect/              # Effect layer: config, errors, services (Database,
+                         # Storage, Auth, DownloadSessions), runtime, effectRoute
+    purge-expired.ts     # Purge job (Effect program run by the cron route)
+    r2-keys.ts           # R2 key layout
   middleware.ts          # Auth gate + security headers
   utils/upload.ts        # Chunk size, size formatting
 vercel.json              # Cron schedule

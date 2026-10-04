@@ -1,23 +1,25 @@
-import { z } from "zod";
+import { Schema } from "effect";
+import { FlagDefaultingToFalse, MaxDownloadsField } from "@/server/effect/schemas";
 
-export const SecuritySettingsSchema = z.object({
-  expiration: z.enum(["24h", "7d", "30d", "custom"]),
-  customExpirationDate: z.string().datetime().optional(),
-  oneTimeDownload: z.boolean().default(false),
-  maxDownloads: z.number().int().min(1).max(100).nullable().default(null),
+const IsoDateString = Schema.String.check(
+  Schema.makeFilter((value) => !Number.isNaN(Date.parse(value)) || "Expected an ISO date string"),
+);
+
+export const SecuritySettingsSchema = Schema.Struct({
+  expiration: Schema.Literals(["24h", "7d", "30d", "custom"]),
+  customExpirationDate: Schema.optionalKey(IsoDateString),
+  oneTimeDownload: FlagDefaultingToFalse,
+  maxDownloads: MaxDownloadsField,
 });
 
-export type SecuritySettings = z.infer<typeof SecuritySettingsSchema>;
+export type SecuritySettings = typeof SecuritySettingsSchema.Type;
+
+const HOURS_BY_PRESET = { "24h": 24, "7d": 168, "30d": 720 } as const;
 
 export function calculateExpiry(settings: SecuritySettings): Date {
   if (settings.expiration === "custom" && settings.customExpirationDate) {
     return new Date(settings.customExpirationDate);
   }
-  const hours =
-    settings.expiration === "24h"
-      ? 24
-      : settings.expiration === "7d"
-        ? 168
-        : 720;
+  const hours = settings.expiration === "custom" ? HOURS_BY_PRESET["30d"] : HOURS_BY_PRESET[settings.expiration];
   return new Date(Date.now() + hours * 60 * 60 * 1000);
 }

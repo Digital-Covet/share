@@ -1,51 +1,42 @@
-import { UploadPartCommand } from "@aws-sdk/client-s3";
-import { z } from "zod";
-import { prisma } from "@/db/project";
-import { PRESIGN_EXPIRES } from "@/lib/constants";
-import { requireUser } from "@/lib/auth.server";
-import { getSignedUrl, r2 } from "@/server/r2";
+import { Effect, Schema } from "effect";
+import { Auth } from "@/server/effect/auth";
+import { Database } from "@/server/effect/database";
+import { NotFound } from "@/server/effect/errors";
+import { decodeInput, effectRoute } from "@/server/effect/route";
+import { PositiveInt } from "@/server/effect/schemas";
+import { Storage } from "@/server/effect/storage";
 
-const QuerySchema = z.object({
-  fileId: z.string().min(1),
-  parts: z.array(z.number().int().positive()).min(1),
+const QuerySchema = Schema.Struct({
+  fileId: Schema.NonEmptyString,
+  parts: Schema.Array(PositiveInt).check(Schema.isMinLength(1)),
 });
 
-export async function GET({ request, url }: { request: Request; url: URL }) {
-  const user = await requireUser(request);
-  const parsed = QuerySchema.safeParse({
-    fileId: url.searchParams.get("fileId"),
-    parts: url.searchParams.getAll("parts").map(Number),
-  });
-  if (!parsed.success)
-    return Response.json({ error: "Invalid params" }, { status: 422 });
+export const GET = effectRoute(({ request, url }: { request: Request; url: URL }) =>
+  Effect.gen(function* () {
+    const user = yield* (yield* Auth).requireUser(request);
+    const { fileId, parts } = yield* decodeInput(QuerySchema, {
+      fileId: url.searchParams.get("fileId"),
+      parts: url.searchParams.getAll("parts").map(Number),
+    });
+    const db = yield* Database;
 
-  const { fileId, parts } = parsed.data;
-  const file = await prisma.file.findUnique({
-    where: { id: fileId },
-    include: { uploadSessions: { where: { status: "INITIATED" } } },
-  });
+    const file = yield* db.use("file.findForResume", (prisma) =>
+      prisma.file.findUnique({
+        where: { id: fileId },
+        include: { uploadSessions: { where: { status: "INITIATED" } } },
+      }),
+    );
+    const uploadId = file?.uploadSessions[0]?.multipartUploadId;
+    if (!file || file.userId !== user.id || !uploadId) {
+      return yield* new NotFound({ message: "No active upload" });
+    }
 
-  if (!file || file.userId !== user.id || !file.uploadSessions[0]) {
-    return Response.json({ error: "No active upload" }, { status: 404 });
-  }
+    const presignedUrls = yield* (yield* Storage).presignUploadParts({
+      key: file.r2Key,
+      uploadId,
+      partNumbers: parts,
+    });
 
-  const session = file.uploadSessions[0];
-  const urls = await Promise.all(
-    parts.map(async (partNumber) => {
-      const cmd = new UploadPartCommand({
-        Bucket: process.env.R2_BUCKET!,
-        Key: file.r2Key,
-        PartNumber: partNumber,
-        UploadId: session.multipartUploadId!,
-      });
-      const link = await getSignedUrl(r2, cmd, { expiresIn: PRESIGN_EXPIRES });
-      return {
-        partNumber,
-        url: link,
-        expiresAt: new Date(Date.now() + PRESIGN_EXPIRES * 1000).toISOString(),
-      };
-    }),
-  );
-
-  return Response.json({ fileId, presignedUrls: urls });
-}
+    return Response.json({ fileId, presignedUrls });
+  }),
+);

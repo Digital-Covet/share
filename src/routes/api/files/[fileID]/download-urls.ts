@@ -1,321 +1,249 @@
-import { GetObjectCommand, DeleteObjectCommand } from "@aws-sdk/client-s3";
-import { createHmac, timingSafeEqual } from "node:crypto";
-import { z } from "zod";
-import { prisma } from "@/db/project";
-import { getSignedUrl, r2 } from "@/server/r2";
-import { r2FileKey, r2PartKey } from "@/server/r2-keys";
-import { PRESIGN_EXPIRES } from "@/lib/constants";
-import { verifyPassword } from "@/lib/crypto/password";
+import { Effect, Schema } from "effect";
+import type { Prisma } from "@generated/project/client";
+import { Database } from "@/server/effect/database";
+import { DownloadSessions } from "@/server/effect/download-sessions";
+import { BadRequest, Forbidden, Gone, NotFound } from "@/server/effect/errors";
+import { verifyPasswordEffect } from "@/server/effect/passwords";
+import { decodeJsonBody, effectRoute } from "@/server/effect/route";
+import { FlagDefaultingToFalse } from "@/server/effect/schemas";
+import { Storage } from "@/server/effect/storage";
+import { r2FileKey } from "@/server/r2-keys";
 
-const BUCKET = process.env.R2_BUCKET!;
-const DELETE_DELAY_MS = 5 * 60 * 1000;
+const GCM_TAG_BYTES = 16;
+// Lets chunk requests already in flight finish before the file becomes unreachable.
+const DELETION_GRACE_MS = 5 * 60 * 1000;
 
-const SESSION_TTL_MS = 60 * 60 * 1000;
-const SESSION_SECRET =
-	process.env.SESSION_SECRET ??
-	process.env.ENCRYPTION_KEY ??
-	"download-session-fallback-secret-change-me";
-
-const BodySchema = z.object({
-	chunkIndices: z.array(z.number().int().min(0)).min(1).max(1000),
-	preview: z.boolean().optional().default(false),
-	sessionId: z.string().optional(),
+const BodySchema = Schema.Struct({
+  chunkIndices: Schema.Array(Schema.Int.check(Schema.isGreaterThanOrEqualTo(0))).check(
+    Schema.isMinLength(1),
+    Schema.isMaxLength(1000),
+  ),
+  preview: FlagDefaultingToFalse,
+  sessionId: Schema.optionalKey(Schema.String),
 });
 
-async function deleteR2Chunks(
-	userId: string,
-	fileId: string,
-	totalChunks: number,
-): Promise<string[]> {
-	const errors: string[] = [];
-	if (totalChunks === 1) {
-		try {
-			await r2.send(
-				new DeleteObjectCommand({
-					Bucket: BUCKET,
-					Key: r2FileKey(userId, fileId),
-				}),
-			);
-		} catch (err) {
-			const msg = err instanceof Error ? err.message : String(err);
-			errors.push(`file: ${msg}`);
-		}
-		return errors;
-	}
-	for (let i = 1; i <= totalChunks; i++) {
-		try {
-			await r2.send(
-				new DeleteObjectCommand({
-					Bucket: BUCKET,
-					Key: r2PartKey(userId, fileId, i),
-				}),
-			);
-		} catch (err) {
-			const msg = err instanceof Error ? err.message : String(err);
-			errors.push(`chunk ${i}: ${msg}`);
-		}
-	}
-	return errors;
-}
+const downloadSelect = {
+  id: true,
+  userId: true,
+  totalChunks: true,
+  chunkSize: true,
+  encryptedSize: true,
+  originalSize: true,
+  status: true,
+  expiresAt: true,
+  shareLinks: {
+    where: { status: "ACTIVE" },
+    orderBy: { createdAt: "desc" },
+    take: 1,
+    select: {
+      id: true,
+      downloadCount: true,
+      isOneTime: true,
+      maxDownloads: true,
+      consumedAt: true,
+      isPasswordProtected: true,
+      passwordHash: true,
+    },
+  },
+} satisfies Prisma.FileSelect;
 
-function scheduleFileDeletion(userId: string, fileId: string, totalChunks: number) {
-	setTimeout(async () => {
-		const deleteErrors = await deleteR2Chunks(userId, fileId, totalChunks);
-		await prisma.file.update({
-			where: { id: fileId },
-			data: { status: "DELETED" },
-		});
-		if (deleteErrors.length > 0) {
-			console.error(
-				`Scheduled deletion: failed to delete ${deleteErrors.length} R2 chunks for file ${fileId}:`,
-				deleteErrors,
-			);
-		}
-	}, DELETE_DELAY_MS);
-}
+type DownloadableFile = Prisma.FileGetPayload<{ select: typeof downloadSelect }> & {
+  userId: string;
+};
+type ActiveLink = DownloadableFile["shareLinks"][number];
 
-function createDownloadSession(shareLinkId: string): string {
-	const payload = JSON.stringify({ sid: shareLinkId, ts: Date.now() });
-	const data = Buffer.from(payload).toString("base64url");
-	const sig = createHmac("sha256", SESSION_SECRET)
-		.update(data)
-		.digest("base64url");
-	return `${data}.${sig}`;
-}
+const consumedError = () => new Gone({ message: "File has already been consumed" });
+const limitReachedError = () => new Gone({ message: "Download limit reached" });
 
-function verifyDownloadSession(token: string, shareLinkId: string): boolean {
-	try {
-		const dotIdx = token.indexOf(".");
-		if (dotIdx === -1) return false;
-		const data = token.slice(0, dotIdx);
-		const sig = token.slice(dotIdx + 1);
-		if (!data || !sig) return false;
+/**
+ * Moves expiry up instead of deleting inline: the purge cron removes the R2
+ * objects, and this works on serverless where a post-response timer never fires.
+ */
+const deferDeletion = Effect.fnUntraced(function* (fileId: string) {
+  const db = yield* Database;
+  const deadline = new Date(Date.now() + DELETION_GRACE_MS);
+  yield* db.use("file.deferDeletion", (prisma) =>
+    prisma.file.updateMany({
+      where: { id: fileId, OR: [{ expiresAt: null }, { expiresAt: { gt: deadline } }] },
+      data: { expiresAt: deadline },
+    }),
+  );
+});
 
-		const expectedSig = createHmac("sha256", SESSION_SECRET)
-			.update(data)
-			.digest("base64url");
+const loadDownloadable = Effect.fnUntraced(function* (fileId: string) {
+  const db = yield* Database;
+  const file = yield* db.use("file.findForDownload", (prisma) =>
+    prisma.file.findUnique({ where: { id: fileId }, select: downloadSelect }),
+  );
 
-		const sigBuf = Buffer.from(sig, "base64url");
-		const expectedBuf = Buffer.from(expectedSig, "base64url");
-		if (sigBuf.length !== expectedBuf.length) return false;
-		if (!timingSafeEqual(sigBuf, expectedBuf)) return false;
+  if (!file?.userId) return yield* new NotFound({ message: "File not found" });
+  if (file.expiresAt && file.expiresAt <= new Date()) {
+    return yield* new Gone({ message: "File has expired" });
+  }
+  if (file.status !== "READY") return yield* new NotFound({ message: "File is not available" });
 
-		const payload = JSON.parse(
-			Buffer.from(data, "base64url").toString("utf-8"),
-		) as { sid: string; ts: number };
+  const link = file.shareLinks[0];
+  if (!link) return yield* new NotFound({ message: "No active share link" });
 
-		if (payload.sid !== shareLinkId) return false;
-		if (Date.now() - payload.ts > SESSION_TTL_MS) return false;
-		return true;
-	} catch {
-		return false;
-	}
-}
+  return { file: file as DownloadableFile, link };
+});
 
-export async function POST({
-	request,
-	params,
-}: {
-	request: Request;
-	params: { fileID: string };
+const checkLinkAvailable = Effect.fnUntraced(function* (options: {
+  link: ActiveLink;
+  fileId: string;
 }) {
-	const { fileID } = params;
-	const raw = await request.json();
-	const parsed = BodySchema.safeParse(raw);
-	if (!parsed.success) {
-		return Response.json(
-			{ error: "Invalid payload", issues: z.treeifyError(parsed.error) },
-			{ status: 422 },
-		);
-	}
+  const { link, fileId } = options;
+  if (link.consumedAt) return yield* consumedError();
+  if (link.maxDownloads !== null && link.downloadCount >= link.maxDownloads) {
+    yield* deferDeletion(fileId);
+    return yield* limitReachedError();
+  }
+});
 
-	const { chunkIndices, preview, sessionId } = parsed.data;
+const checkPassword = Effect.fnUntraced(function* (options: {
+  link: ActiveLink;
+  request: Request;
+}) {
+  const { link, request } = options;
+  if (!link.isPasswordProtected) return;
 
-	const file = await prisma.file.findUnique({
-		where: { id: fileID },
-		select: {
-			id: true,
-			userId: true,
-			totalChunks: true,
-			chunkSize: true,
-			encryptedSize: true,
-			originalSize: true,
-			status: true,
-			expiresAt: true,
-			uploadSessions: {
-				select: { multipartUploadId: true },
-				take: 1,
-			},
-			shareLinks: {
-				where: { status: "ACTIVE" },
-				orderBy: { createdAt: "desc" },
-				take: 1,
-				select: {
-					id: true,
-					downloadCount: true,
-					isOneTime: true,
-					maxDownloads: true,
-					consumedAt: true,
-					isPasswordProtected: true,
-					passwordHash: true,
-				},
-			},
-		},
-	});
+  const passwordRequired = (message: string) =>
+    new Forbidden({ message, details: { is_password_protected: true } });
 
-	if (!file || !file.userId) {
-		return Response.json({ error: "File not found" }, { status: 404 });
-	}
+  const password = request.headers.get("x-share-password");
+  if (!password) return yield* passwordRequired("Password required");
 
-	const { userId } = file;
-	const now = new Date();
+  const valid = yield* verifyPasswordEffect({ password, stored: link.passwordHash ?? "" });
+  if (!valid) return yield* passwordRequired("Invalid password");
+});
 
-	if (file.expiresAt && file.expiresAt <= now) {
-		return Response.json({ error: "File has expired" }, { status: 410 });
-	}
-	if (file.status !== "READY") {
-		return Response.json({ error: "File is not available" }, { status: 404 });
-	}
+const claimOneTimeDownload = Effect.fnUntraced(function* (options: {
+  link: ActiveLink;
+  fileId: string;
+}) {
+  const db = yield* Database;
+  const updated = yield* db.use("shareLink.consumeOneTime", (prisma) =>
+    prisma.$executeRaw`
+      UPDATE share_links
+      SET "consumedAt" = NOW(), "downloadCount" = "downloadCount" + 1
+      WHERE id = ${options.link.id} AND "consumedAt" IS NULL
+    `,
+  );
+  if (updated === 0) return yield* consumedError();
+  yield* deferDeletion(options.fileId);
+});
 
-	const link = file.shareLinks[0];
-	if (!link) {
-		return Response.json({ error: "No active share link" }, { status: 404 });
-	}
+const claimLimitedDownload = Effect.fnUntraced(function* (options: {
+  link: ActiveLink;
+  maxDownloads: number;
+  fileId: string;
+}) {
+  const db = yield* Database;
+  const { link, maxDownloads, fileId } = options;
 
-	const hasValidSession =
-		!preview &&
-		sessionId !== undefined &&
-		verifyDownloadSession(sessionId, link.id);
+  const updated = yield* db.use("shareLink.countLimited", (prisma) =>
+    prisma.$executeRaw`
+      UPDATE share_links
+      SET "downloadCount" = "downloadCount" + 1
+      WHERE id = ${link.id} AND "downloadCount" < ${maxDownloads}
+    `,
+  );
+  if (updated === 0) {
+    yield* deferDeletion(fileId);
+    return yield* limitReachedError();
+  }
 
-	if (!hasValidSession) {
-		if (link.consumedAt) {
-			return Response.json(
-				{ error: "File has already been consumed" },
-				{ status: 410 },
-			);
-		}
-		if (
-			link.maxDownloads !== null &&
-			link.downloadCount >= link.maxDownloads
-		) {
-			scheduleFileDeletion(userId, file.id, file.totalChunks);
-			return Response.json(
-				{ error: "Download limit reached" },
-				{ status: 410 },
-			);
-		}
+  const refreshed = yield* db.use("shareLink.recount", (prisma) =>
+    prisma.shareLink.findUnique({
+      where: { id: link.id },
+      select: { downloadCount: true, maxDownloads: true },
+    }),
+  );
+  if (refreshed?.maxDownloads != null && refreshed.downloadCount >= refreshed.maxDownloads) {
+    yield* deferDeletion(fileId);
+  }
+});
 
-		if (link.isPasswordProtected) {
-			const password = request.headers.get("x-share-password");
-			if (!password) {
-				return Response.json(
-					{ error: "Password required", is_password_protected: true },
-					{ status: 403 },
-				);
-			}
-			const valid = await verifyPassword(password, link.passwordHash!);
-			if (!valid) {
-				return Response.json(
-					{ error: "Invalid password", is_password_protected: true },
-					{ status: 403 },
-				);
-			}
-		}
-	}
+const recordDownload = Effect.fnUntraced(function* (options: {
+  link: ActiveLink;
+  fileId: string;
+}) {
+  const { link, fileId } = options;
+  if (link.isOneTime) return yield* claimOneTimeDownload({ link, fileId });
+  if (link.maxDownloads !== null) {
+    return yield* claimLimitedDownload({ link, maxDownloads: link.maxDownloads, fileId });
+  }
+  yield* (yield* Database).use("shareLink.count", (prisma) =>
+    prisma.shareLink.update({
+      where: { id: link.id },
+      data: { downloadCount: { increment: 1 } },
+    }),
+  );
+});
 
-	const outOfRange = chunkIndices.find((i) => i >= file.totalChunks);
-	if (outOfRange !== undefined) {
-		return Response.json(
-			{
-				error: `Chunk index ${outOfRange} exceeds total chunks (${file.totalChunks})`,
-			},
-			{ status: 400 },
-		);
-	}
+const byteRangeOf = (file: DownloadableFile, index: number): string => {
+  const stride = file.chunkSize + GCM_TAG_BYTES;
+  const start = index * stride;
+  const end =
+    index === file.totalChunks - 1
+      ? Number(file.encryptedSize ?? file.originalSize) - 1
+      : start + stride - 1;
+  return `bytes=${start}-${end}`;
+};
 
-	if (!preview && !hasValidSession) {
-		if (link.isOneTime) {
-			const updated = await prisma.$executeRaw`
-				UPDATE share_links
-				SET "consumedAt" = NOW(), "downloadCount" = "downloadCount" + 1
-				WHERE id = ${link.id} AND "consumedAt" IS NULL
-			`;
-			if (updated === 0) {
-				return Response.json(
-					{ error: "File has already been consumed" },
-					{ status: 410 },
-				);
-			}
-			scheduleFileDeletion(userId, file.id, file.totalChunks);
-		} else if (link.maxDownloads !== null) {
-			const updated = await prisma.$executeRaw`
-				UPDATE share_links
-				SET "downloadCount" = "downloadCount" + 1
-				WHERE id = ${link.id}
-				  AND "downloadCount" < ${link.maxDownloads}
-			`;
-			if (updated === 0) {
-				scheduleFileDeletion(userId, file.id, file.totalChunks);
-				return Response.json(
-					{ error: "Download limit reached" },
-					{ status: 410 },
-				);
-			}
-			const refreshed = await prisma.shareLink.findUnique({
-				where: { id: link.id },
-				select: { downloadCount: true, maxDownloads: true },
-			});
-			if (
-				refreshed &&
-				refreshed.maxDownloads !== null &&
-				refreshed.downloadCount >= refreshed.maxDownloads
-			) {
-				scheduleFileDeletion(userId, file.id, file.totalChunks);
-			}
-		} else {
-			await prisma.shareLink.update({
-				where: { id: link.id },
-				data: { downloadCount: { increment: 1 } },
-			});
-		}
-	}
+const presignChunks = Effect.fnUntraced(function* (options: {
+  file: DownloadableFile;
+  chunkIndices: ReadonlyArray<number>;
+}) {
+  const storage = yield* Storage;
+  const { file, chunkIndices } = options;
+  const key = r2FileKey(file.userId, file.id);
 
-	const assembledKey = r2FileKey(userId, file.id);
-	const totalEncryptedSize = Number(file.encryptedSize ?? file.originalSize);
+  return yield* Effect.forEach(
+    chunkIndices,
+    (index) => {
+      const range = byteRangeOf(file, index);
+      return storage
+        .presignRange({ key, range })
+        .pipe(Effect.map((url) => ({ index, url, range })));
+    },
+    { concurrency: "unbounded" },
+  );
+});
 
-	const GCM_TAG_BYTES = 16;
-	const encryptedStride = file.chunkSize + GCM_TAG_BYTES;
+export const POST = effectRoute(
+  ({ request, params }: { request: Request; params: { fileID: string } }) =>
+    Effect.gen(function* () {
+      const { chunkIndices, preview, sessionId } = yield* decodeJsonBody(request, BodySchema);
+      const sessions = yield* DownloadSessions;
+      const { file, link } = yield* loadDownloadable(params.fileID);
 
-	const urls = await Promise.all(
-		chunkIndices.map(async (index) => {
-			const start = index * encryptedStride;
-			const end =
-				index === file.totalChunks - 1
-					? totalEncryptedSize - 1
-					: start + encryptedStride - 1;
-			const range = `bytes=${start}-${end}`;
-			const command = new GetObjectCommand({
-				Bucket: BUCKET,
-				Key: assembledKey,
-				Range: range,
-			});
-			const url = await getSignedUrl(r2, command, {
-				expiresIn: PRESIGN_EXPIRES,
-			});
-			return { index, url, range };
-		}),
-	);
+      const hasValidSession =
+        !preview && sessionId !== undefined && sessions.verify(sessionId, link.id);
+      const needsAuthorization = !hasValidSession;
 
-	const responseBody: {
-		urls: typeof urls;
-		sessionId?: string;
-	} = { urls };
+      if (needsAuthorization) {
+        yield* checkLinkAvailable({ link, fileId: file.id });
+        yield* checkPassword({ link, request });
+      }
 
-	if (!preview) {
-		responseBody.sessionId = hasValidSession
-			? sessionId!
-			: createDownloadSession(link.id);
-	}
+      const outOfRange = chunkIndices.find((index) => index >= file.totalChunks);
+      if (outOfRange !== undefined) {
+        return yield* new BadRequest({
+          message: `Chunk index ${outOfRange} exceeds total chunks (${file.totalChunks})`,
+        });
+      }
 
-	return Response.json(responseBody);
-}
+      if (!preview && needsAuthorization) {
+        yield* recordDownload({ link, fileId: file.id });
+      }
+
+      const urls = yield* presignChunks({ file, chunkIndices });
+
+      if (preview) return Response.json({ urls });
+      return Response.json({
+        urls,
+        sessionId: hasValidSession ? sessionId : sessions.create(link.id),
+      });
+    }),
+);
