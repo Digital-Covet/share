@@ -8,6 +8,8 @@
 		"preview": "vite preview",
 		"format": "biome format --write",
 		"lint": "biome lint --write",
+		"typecheck": "tsc --noEmit",
+		"test": "vitest run",
 		"generate": "prisma generate --schema=prisma/auth.prisma && prisma generate --schema=prisma/project.prisma",
 		"generate:auth": "prisma generate --schema=prisma/auth.prisma",
 		"generate:project": "prisma generate --schema=prisma/project.prisma",
@@ -31,6 +33,7 @@
 		"@tailwindcss/vite": "^4.3.0",
 		"better-auth": "^1.6.18",
 		"dotenv": "^17.4.2",
+		"effect": "^4.0.0",
 		"fflate": "^0.8.3",
 		"jose": "^6.2.3",
 		"lucide-solid": "^1.17.0",
@@ -39,8 +42,7 @@
 		"tailwindcss": "^4.3.0",
 		"typescript": "^6.0.3",
 		"vite": "^7.0.0",
-		"zeptomail": "^8.0.1",
-		"zod": "^4.4.3"
+		"zeptomail": "^8.0.1"
 	},
 	"engines": {
 		"node": ">=22"
@@ -49,6 +51,7 @@
 		"@biomejs/biome": "2.4.16",
 		"@types/node": "^25.9.3",
 		"@types/pg": "^8.20.0",
-		"prisma": "^7.8.0"
+		"prisma": "^7.8.0",
+		"vitest": "^5.0.3"
 	}
 }
