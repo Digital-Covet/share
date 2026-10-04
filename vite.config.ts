@@ -10,7 +10,9 @@ export default defineConfig({
   plugins: [
     solidStart({ middleware: "./src/middleware.ts" }),
     // Tell Nitro to build for Vercel's serverless infrastructure
-    nitro({ preset: "vercel" }),
+    // Prisma pulls in effect@3 while the app uses effect@4; inlining avoids runtime
+    // resolution picking the wrong copy inside the traced serverless bundle.
+    nitro({ preset: "vercel", externals: { inline: ["effect"] } }),
     tailwindcss(),
   ],
   resolve: {
