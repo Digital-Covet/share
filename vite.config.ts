@@ -8,7 +8,7 @@ import { defineConfig } from "vite";
 
 export default defineConfig({
   plugins: [
-    solidStart(),
+    solidStart({ middleware: "./src/middleware.ts" }),
     // Tell Nitro to build for Vercel's serverless infrastructure
     nitro({ preset: "vercel" }),
     tailwindcss(),

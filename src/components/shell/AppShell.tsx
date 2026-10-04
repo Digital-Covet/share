@@ -1,6 +1,8 @@
 import { A } from "@solidjs/router";
-import { For, type ParentProps } from "solid-js";
+import { createEffect, For, type ParentProps } from "solid-js";
 import { Dynamic } from "solid-js/web";
+import { authClient } from "@/lib/auth-client";
+import { ROUTES } from "@/lib/constants";
 import { NAV_ITEMS, Sidebar } from "./Sidebar";
 
 function MobileNav() {
@@ -28,7 +30,22 @@ function MobileNav() {
 	);
 }
 
+function redirectToLoginWhenSignedOut() {
+	const session = authClient.useSession();
+
+	createEffect(() => {
+		const { data, isPending } = session();
+		if (isPending || data?.user) return;
+
+		const loginUrl = new URL(ROUTES.LOGIN, window.location.origin);
+		loginUrl.searchParams.set("redirect", window.location.href);
+		window.location.assign(loginUrl.href);
+	});
+}
+
 export function AppShell(props: ParentProps) {
+	redirectToLoginWhenSignedOut();
+
 	return (
 		<div class="flex min-h-screen flex-col bg-background md:flex-row">
 			<MobileNav />

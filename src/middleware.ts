@@ -1,6 +1,7 @@
 import { createMiddleware } from "@solidjs/start/middleware";
 import { hashIp } from "@/lib/ip-hash";
 import { getSession } from "@/lib/auth.server";
+import { isProtectedRoute } from "@/lib/protected-routes";
 
 const R2_ENDPOINT = "https://63a1e79156c2df895c7be8b7506e2fcb.r2.cloudflarestorage.com";
 
@@ -18,16 +19,6 @@ const CSP = [
   "base-uri 'none'",
   "form-action 'self'",
 ].join("; ");
-
-const PROTECTED_ROUTES = ["/dashboard", "/upload"];
-
-function isProtectedRoute(pathname: string): boolean {
-  if (pathname === "/") return true;
-
-  return PROTECTED_ROUTES.some(
-    (prefix) => pathname === prefix || pathname.startsWith(`${prefix}/`),
-  );
-}
 
 export default createMiddleware({
   onRequest: async (event) => {
