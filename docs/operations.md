@@ -9,10 +9,48 @@ vars.
 
 | Process | Command (from `build/`) | Notes |
 |---|---|---|
-| Web | `node bin/server.js` | Stateless; run as many replicas as needed. Registers the job schedules (`start/scheduler.ts`) at boot. |
+| Web | `node bin/server.js` (image default) | Stateless; run as many replicas as needed. Registers the job schedules (`start/scheduler.ts`) at boot. |
 | Worker | `node ace queue:work` (`pnpm worker` in a checkout) | Runs queued and scheduled jobs: transfer cleanup every 15 min, recipient emails. Run at least one. |
 
 Both processes need the same environment.
+
+## Container image
+
+`Dockerfile` builds one image (Node 24, compiled app + production
+dependencies, runs as the non-root `node` user, working directory `/app` =
+`build/`). The default command is the web server; override it for the worker
+and for migrations:
+
+```bash
+docker build -t covetdrop .
+docker run --env-file .env -p 3334:3334 covetdrop                   # web
+docker run --env-file .env covetdrop node ace queue:work            # worker
+docker run --env-file .env covetdrop node ace migration:run --connection=postgres_direct --force
+```
+
+- The image sets `NODE_ENV=production`, `HOST=0.0.0.0`, `PORT=3334`, `TZ=UTC`;
+  values in `--env-file` win. A laptop `.env` with `HOST=localhost` makes the
+  server listen on the container's loopback only, so set `HOST=0.0.0.0` (and
+  keep `NODE_ENV=production`) in the env passed to the container.
+- No `.env` is baked in (`.dockerignore`); every setting comes from the
+  environment, so the same image runs in dev, staging and prod.
+- The container is stateless: nothing is written to disk besides `tmp/`
+  (unused with `DRIVE_DISK=r2`).
+
+## CI
+
+`.github/workflows/ci.yml` runs on every push and pull request:
+
+- **check** — `pnpm lint`, `pnpm typecheck`, `node ace test unit functional`
+  (SQLite, `.env.test`; the browser suite is excluded) and `pnpm build`.
+  `.env` is copied from `.env.example`.
+- **image** — `docker build`, then from the image runs the migrations against a
+  Postgres 17 service container and checks that the web container answers
+  `GET /` with 200. Tests run on SQLite, so this is where the Postgres
+  migrations are exercised.
+
+Deploy pipelines are not part of CI; a deploy runs the migration command above
+before rolling out the new web and worker containers.
 
 ## Migrations
 

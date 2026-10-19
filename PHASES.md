@@ -120,7 +120,7 @@ The token lives only in the creator's browser. If it's lost mid-upload, the crea
 | 10 | Queue and transfer cleanup | 2, 3 | ✅ |
 | 11 | Email notification on upload confirmation | 10 | ✅ |
 | 12 | Observability and hardening | 6, 10 | 🟡 |
-| 13 | Container image and CI | 12 | ☐ |
+| 13 | Container image and CI | 12 | 🟡 |
 
 ---
 
@@ -703,11 +703,11 @@ Cleanup rules (in batches of 100):
 4. Tests: expired → soft-deleted and objects removed; unexpired confirmed untouched; unconfirmed older than 24 h → soft-deleted and every object under `transfers/<id>/` removed; unconfirmed younger than 24 h untouched; a transfer soft-deleted by a user (Phase 8) has its objects removed; a missing object doesn't fail the run; running twice is a no-op the second time; a `StorageService.delete` failure leaves that file's `deleted_at` NULL so the next run retries.
 
 ### Done when
-- [ ] `node ace test unit --files=tests/unit/cleanup_service.spec.ts` passes
-- [ ] `node ace transfers:cleanup` prints counts and exits 0 on the dev DB
-- [ ] Worker starts with the documented command and logs the scheduled job firing
-- [ ] `pnpm test`, `pnpm lint`, `pnpm typecheck` pass
-- [ ] No changes outside the files listed above
+- [x] `node ace test unit --files=tests/unit/cleanup_service.spec.ts` passes
+- [x] `node ace transfers:cleanup` prints counts and exits 0 on the dev DB
+- [x] Worker starts with the documented command and logs the scheduled job firing
+- [x] `pnpm test`, `pnpm lint`, `pnpm typecheck` pass
+- [x] No changes outside the files listed above (plus generated `database/schema.ts`, `.adonisjs/**`, `pnpm-lock.yaml`) — except the queue-tables migration (see notes)
 
 ---
 
@@ -803,8 +803,13 @@ Spec: structured logs, traces on transfer creation and download resolution, metr
 
 ## Phase 13 — Container image and CI
 
-**Status:** ☐ Not started
+**Status:** 🟡 Implemented — Docker build/run and CI not yet run (no Docker on the dev machine, no git remote)
 **Depends on:** Phase 12
+
+> **Implementation notes (2026-10-19):**
+> - Tests run on SQLite (Phase 1 deviation), so the Postgres service isn't used by the tests. The workflow has two jobs: `check` (lint, typecheck, `node ace test unit functional`, build; `.env` copied from `.env.example`, `.env.test` already committed) and `image` (`docker build`, migrations run **from the image** against a Postgres 17 service, then the web container must answer `GET /` with 200). That covers "Done when" 1–2 in CI and is the only place Postgres DDL is exercised.
+> - The image installs prod deps inside `build/` with `pnpm-workspace.yaml` copied next to the lockfile (it holds the overrides). Image defaults: `NODE_ENV=production`, `HOST=0.0.0.0`, `PORT=3334`; `--env-file` overrides them, so a local `.env` must use `HOST=0.0.0.0` for `docker run`.
+> - Verified without Docker: in a fresh clone with `.env` = `.env.example`, `pnpm install --frozen-lockfile` + `node ace test unit functional` pass (128 tests); `pnpm build` passes with no `.env`; `pnpm install --prod --frozen-lockfile` inside `build/` works; `node bin/server.js` from `build/` (`NODE_ENV=production`, dev DB) serves `GET /` with 200. `tests/` must stay in the Docker context (`bin/test.ts` imports it, so `tsc` fails without it).
 
 ### Goal
 The app builds into a container image that runs the web server or the queue worker, and CI runs lint, typecheck, tests and build on every push.
@@ -828,7 +833,7 @@ Spec: containerized stateless Adonis replicas; migrations run as a CI/CD step; d
 3. Document run commands.
 
 ### Done when
-- [ ] `docker build -t covetdrop .` succeeds
-- [ ] `docker run --env-file .env -p 3334:3334 covetdrop` serves `GET /` with 200
-- [ ] CI workflow passes on a pushed branch
-- [ ] No changes outside the files listed above
+- [ ] `docker build -t covetdrop .` succeeds (checked by CI job `image`; not run locally)
+- [ ] `docker run --env-file .env -p 3334:3334 covetdrop` serves `GET /` with 200 (checked by CI job `image`; built server verified without Docker)
+- [ ] CI workflow passes on a pushed branch (repo has no remote yet)
+- [x] No changes outside the files listed above (plus `PHASES.md`)
