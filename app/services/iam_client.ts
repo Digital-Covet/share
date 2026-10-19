@@ -34,6 +34,21 @@ const issuer = () => env.get('IAM_ISSUER').replace(/\/$/, '')
 const random = () => randomBytes(32).toString('base64url')
 
 /**
+ * Fetch from IAM without following redirects: `fetch` would turn a redirected
+ * POST into a bodiless GET, which IAM answers with a bare 404. A redirect
+ * means `IAM_ISSUER` isn't IAM's canonical URL (http vs https, www, ...).
+ */
+async function iamFetch(path: string, init?: RequestInit) {
+  const res = await fetch(`${issuer()}${path}`, { ...init, redirect: 'manual' })
+  if (res.status >= 300 && res.status < 400) {
+    throw new IamError(
+      `IAM redirected ${path} to ${res.headers.get('location')}; set IAM_ISSUER to IAM's canonical URL.`
+    )
+  }
+  return res
+}
+
+/**
  * Form POST to an IAM endpoint with client authentication: HTTP Basic for a
  * confidential client, `client_id` in the body for a public one (it's sent
  * either way, as IAM accepts both).
@@ -50,7 +65,7 @@ async function clientPost(path: string, params: Record<string, string>) {
     headers.Authorization = `Basic ${Buffer.from(`${id}:${encodeURIComponent(secret)}`).toString('base64')}`
   }
 
-  const res = await fetch(`${issuer()}${path}`, { method: 'POST', headers, body })
+  const res = await iamFetch(path, { method: 'POST', headers, body })
   const json = (await res.json().catch(() => ({}))) as Record<string, any>
   return { res, json }
 }
@@ -58,7 +73,7 @@ async function clientPost(path: string, params: Record<string, string>) {
 let jwksCache: { keys: Map<string, KeyObject>; fetchedAt: number } | null = null
 
 async function fetchJwks(): Promise<Map<string, KeyObject>> {
-  const res = await fetch(`${issuer()}/.well-known/jwks.json`)
+  const res = await iamFetch('/.well-known/jwks.json')
   if (!res.ok) throw new IamError(`JWKS request failed (${res.status}).`)
   const body = (await res.json()) as { keys?: Array<Record<string, any>> }
   const keys = new Map<string, KeyObject>()
