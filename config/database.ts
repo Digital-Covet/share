@@ -24,7 +24,7 @@ const dbConfig = defineConfig({
    * Run migrations/DDL via the unpooled connection:
    * `node ace migration:run --connection=postgres_direct`
    */
-  connection: 'postgres',
+  connection: env.get('DB_CONNECTION', 'postgres'),
 
   connections: {
     /**
@@ -76,6 +76,23 @@ const dbConfig = defineConfig({
         rulesPaths: ['./database/schema_rules.js'],
       },
       debug: app.inDev,
+    },
+
+    /**
+     * Test-only SQLite file (`DB_CONNECTION=sqlite` in `.env.test`), so
+     * tests need no Postgres server. Schema generation stays off: the
+     * generated model classes come from the Postgres schema.
+     */
+    sqlite: {
+      client: 'better-sqlite3',
+      connection: {
+        filename: app.tmpPath('db.test.sqlite3'),
+      },
+      useNullAsDefault: true,
+      migrations: {
+        naturalSort: true,
+        paths: ['database/migrations'],
+      },
     },
   },
 })

@@ -1,4 +1,5 @@
 import { BaseSchema } from '@adonisjs/lucid/schema'
+import { uuidDefault } from '#database/uuid_default'
 
 /**
  * Append-only download log. `transfer_file_id` is NULL for whole-transfer
@@ -9,7 +10,7 @@ export default class extends BaseSchema {
 
   async up() {
     this.schema.createTable(this.tableName, (table) => {
-      table.uuid('id').primary().defaultTo(this.raw('gen_random_uuid()'))
+      table.uuid('id').primary().defaultTo(uuidDefault(this))
       table
         .uuid('transfer_id')
         .notNullable()

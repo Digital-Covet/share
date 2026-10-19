@@ -1,4 +1,5 @@
 import { BaseSchema } from '@adonisjs/lucid/schema'
+import { uuidDefault } from '#database/uuid_default'
 
 /**
  * A transfer groups uploaded files shared with a set of recipients.
@@ -9,7 +10,7 @@ export default class extends BaseSchema {
 
   async up() {
     this.schema.createTable(this.tableName, (table) => {
-      table.uuid('id').primary().defaultTo(this.raw('gen_random_uuid()'))
+      table.uuid('id').primary().defaultTo(uuidDefault(this))
       table.text('title').notNullable()
       table.text('message').nullable()
       table.timestamp('expires_at', { useTz: true }).notNullable()

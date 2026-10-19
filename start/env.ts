@@ -29,6 +29,8 @@ export default await Env.create(new URL('../', import.meta.url), {
   // DATABASE_URL: Neon pooler (PgBouncer, transaction mode) for runtime
   // DATABASE_URL_UNPOOLED: direct connection for migrations/DDL
   // Plain strings: the `url` format rejects the `postgresql://` scheme.
+  // DB_CONNECTION: default Lucid connection; `sqlite` is used by tests only.
+  DB_CONNECTION: Env.schema.enum.optional(['postgres', 'sqlite'] as const),
   DATABASE_URL: Env.schema.string(),
   DATABASE_URL_UNPOOLED: Env.schema.string(),
 
