@@ -723,6 +723,12 @@ Cleanup rules (in batches of 100):
 > - The mail has an HTML view (`emails/transfer_received`) plus an inline plain-text part. Link = `new URL('/transfers/<id>', APP_URL)`.
 > - `.env.test` sets `MAIL_ENABLED=false` so other suites never try SMTP; `notify.spec.ts` switches it on with `env.set` around `mail.fake()`.
 > - Done-when lint/typecheck: Phase 11 files are clean. The remaining `pnpm lint`/`pnpm typecheck` errors at the time of writing were in Phase 12 work in progress (`app/services/download_service.ts`, `tests/functional/transfers/rate_limit.spec.ts`).
+>
+> **Follow-up (2026-10-19): ZeptoMail, download receipts, expiry reminders.**
+> - Delivery: custom `@adonisjs/mail` transport `app/mails/transports/zeptomail.ts` around the `zeptomail` SDK (HTTP API). `MAIL_MAILER` picks `zeptomail` or `smtp`; `ZEPTOMAIL_TOKEN` (secret) and `ZEPTOMAIL_URL` (default `https://cpaas.zoho.in/v1.1/email`). Boot fails if mail is on with ZeptoMail and no token. API errors, and a request that hangs past 30 s, are raised as `E_MAIL_TRANSPORT_ERROR`, so job retries work as with SMTP. Open/click tracking is off.
+> - Download receipt: `DownloadService.authorize` queues `NotifyDownloadJob` when a user's first successful download of a transfer is recorded (checked under the transfer row lock). The creator's own downloads are skipped.
+> - Expiry reminder: `SendExpiryRemindersJob` runs hourly (`start/scheduler.ts`) via `ExpiryReminderService`. It covers active, confirmed transfers that expire within 24 h and are older than 24 h. Each transfer is claimed through `transfer.expiry_reminder_sent_at` (new migration) before sending, so it's reminded at most once; only recipients without a successful download are emailed.
+> - Tests: `tests/unit/zeptomail_transport.spec.ts`, `tests/unit/expiry_reminder_service.spec.ts`, `tests/functional/transfers/download_receipt.spec.ts`.
 
 ### Goal
 When the creator's upload is first confirmed, each recipient optionally gets an email with the title, sender, expiry and a link to the detail page (never a direct file link).

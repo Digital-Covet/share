@@ -10,7 +10,7 @@ vars.
 | Process | Command (from `build/`) | Notes |
 |---|---|---|
 | Web | `node bin/server.js` (image default) | Stateless; run as many replicas as needed. Registers the job schedules (`start/scheduler.ts`) at boot. |
-| Worker | `node ace queue:work` (`pnpm worker` in a checkout) | Runs queued and scheduled jobs: transfer cleanup every 15 min, recipient emails. Run at least one. |
+| Worker | `node ace queue:work` (`pnpm worker` in a checkout) | Runs queued and scheduled jobs: transfer cleanup every 15 min, expiry reminders every hour, all emails. Run at least one. |
 
 Both processes need the same environment.
 
@@ -86,7 +86,9 @@ See `.env.example` for defaults and comments.
 | `STORAGE_MAX_SINGLE_PUT_BYTES` | no (5363466240) | Per-file cap (R2 single-PUT limit). |
 | `QUEUE_DRIVER` | yes | `database`. |
 | `LIMITER_STORE` | yes | `database` (shared by all replicas). `memory` only in tests: per-process counters would multiply the limits by the replica count. |
-| `MAIL_ENABLED`, `MAIL_FROM_ADDRESS`, `MAIL_FROM_NAME`, `SMTP_*` | when mail is on | Recipient notifications. |
+| `MAIL_ENABLED`, `MAIL_MAILER`, `MAIL_FROM_ADDRESS`, `MAIL_FROM_NAME` | when mail is on | Recipient notices, download receipts, expiry reminders. `MAIL_MAILER=zeptomail` in production; the from address must be on a domain verified in the ZeptoMail Mail Agent. |
+| `ZEPTOMAIL_TOKEN` (secret), `ZEPTOMAIL_URL` | when `MAIL_MAILER=zeptomail` | Mail Agent send-mail token and API endpoint (default `https://cpaas.zoho.in/v1.1/email`). Boot fails if mail is on and the token is missing. Delivery and bounces show in ZeptoMail → Email Logs. |
+| `SMTP_*` | when `MAIL_MAILER=smtp` | SMTP relay (local development). |
 
 Check storage settings with `node ace storage:probe` (presigned PUT → GET →
 delete round trip; prints `OK`).
@@ -141,6 +143,7 @@ URLs.
 | `download.granted` | info | `transferId`, `fileId`, `userId` | download successes |
 | `download.denied` | info | `transferId`, `fileId`, `userId`, `reason` (`not_found`, `forbidden`, `expired`, `invalid_password`, `rate_limited`, `download_limit_reached`) | download failures by reason |
 | `cleanup.run` | info | `expired`, `abandoned`, `filesDeleted`, `prefixesPurged` | cleanup throughput; alert if absent for > 1 h (worker down) |
+| `reminder.run` | info | `transfers`, `emails` | expiry reminders sent per hourly run (only logged when mail is on) |
 | `iam.recheck` | info / warn | `userId`, `outcome` (`ok`, `revoked`, `not_entitled`, `iam_unreachable`), `reason` (detail for failures) | sign-outs by IAM; `iam_unreachable` is logged at `warn` — a spike means IAM is down and users are being signed out (fail closed) |
 | `rate_limited` | info | `userId`, `route` | throttled requests |
 

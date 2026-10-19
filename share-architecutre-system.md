@@ -44,7 +44,7 @@ C4Context
 
     System(covetdrop, "CovetDrop (Share)", "Internal large-file transfer service")
     System_Ext(iam, "Digital Covet IAM", "Users, roles, sessions, app_entitlements, OAuth2/OIDC, audit")
-    System_Ext(email, "Email Service", "Optional transfer notifications")
+    System_Ext(email, "Email Service (ZeptoMail)", "Optional transfer notifications")
     System_Ext(storage, "Object Storage (R2 / GCS)", "File bytes")
     System_Ext(observability, "Observability Stack", "Logs, metrics, traces")
 
@@ -85,7 +85,7 @@ C4Container
     Rel(api, iam, "Session validation, entitlement & role checks", "OIDC / DB lookup / token")
     Rel(api, storage, "Presigned URLs", "S3 API")
     Rel(api, queue, "Async jobs")
-    Rel(queue, email, "Notifications", "SMTP")
+    Rel(queue, email, "Notifications", "ZeptoMail API (SMTP for local dev)")
 ```
 
 | Container | Responsibility | Technology | Communication |
