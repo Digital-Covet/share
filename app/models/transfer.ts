@@ -1,7 +1,9 @@
 import { TransferSchema } from '#database/schema'
 import { compose } from '@adonisjs/core/helpers'
-import { belongsTo, hasMany, manyToMany } from '@adonisjs/lucid/orm'
+import { belongsTo, hasMany, manyToMany, scope, type BaseModel } from '@adonisjs/lucid/orm'
 import type { BelongsTo, HasMany, ManyToMany } from '@adonisjs/lucid/types/relations'
+import type { ModelQueryBuilderContract } from '@adonisjs/lucid/types/model'
+import db from '@adonisjs/lucid/services/db'
 import { DateTime } from 'luxon'
 import { withSoftDeletes } from '#models/mixins/soft_deletes'
 import User from '#models/user'
@@ -31,6 +33,16 @@ export default class Transfer extends compose(TransferSchema, withSoftDeletes) {
 
   @hasMany(() => TransferDownload)
   declare downloads: HasMany<typeof TransferDownload>
+
+  /**
+   * Transfers whose uploads were confirmed, i.e. `complete` wrote at least
+   * one `transfer_file` row. There is no status column.
+   */
+  static confirmed = scope((query: ModelQueryBuilderContract<typeof BaseModel>) => {
+    query.whereExists(
+      db.from('transfer_file').whereColumn('transfer_file.transfer_id', 'transfer.id')
+    )
+  })
 
   get isExpired() {
     return this.expiresAt <= DateTime.now()

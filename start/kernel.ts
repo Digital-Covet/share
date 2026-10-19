@@ -49,4 +49,5 @@ router.use([
 export const middleware = router.named({
   guest: () => import('#middleware/guest_middleware'),
   auth: () => import('#middleware/auth_middleware'),
+  iamRecheck: () => import('#middleware/iam_recheck_middleware'),
 })

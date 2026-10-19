@@ -22,6 +22,11 @@ export default class User extends UserSchema {
   @hasMany(() => TransferDownload)
   declare downloads: HasMany<typeof TransferDownload>
 
+  /** IAM `admin` and `superadmin` may view and delete any confirmed transfer. */
+  get isAdmin() {
+    return this.role === 'admin' || this.role === 'superadmin'
+  }
+
   get initials() {
     const source = this.name?.trim() || this.email.split('@')[0]
     const parts = source.split(/[\s._-]+/).filter(Boolean)

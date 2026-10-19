@@ -1,6 +1,7 @@
 import { test } from '@japa/runner'
 import testUtils from '@adonisjs/core/services/test_utils'
 import { UserFactory } from '#database/factories/user_factory'
+import { signIn } from '#tests/helpers/sign_in'
 
 test.group('Smoke', (group) => {
   group.each.setup(() => testUtils.db().withGlobalTransaction())
@@ -19,12 +20,14 @@ test.group('Smoke', (group) => {
     response.assertHeader('location', '/login')
   })
 
-  test('dashboard renders for a signed-in user', async ({ client }) => {
+  test('dashboard renders for a signed-in user', async ({ client, assert }) => {
     const user = await UserFactory.create()
 
-    const response = await client.get('/dashboard').withInertia().loginAs(user)
+    const response = await signIn(client.get('/dashboard').withInertia(), user)
 
     response.assertStatus(200)
     response.assertInertiaComponent('dashboard')
+    assert.deepEqual(response.inertiaProps.sent, [])
+    assert.deepEqual(response.inertiaProps.received, [])
   })
 })

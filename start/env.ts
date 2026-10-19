@@ -42,6 +42,8 @@ export default await Env.create(new URL('../', import.meta.url), {
   IAM_CLIENT_SECRET: Env.schema.string.optional(),
   IAM_REDIRECT_URI: Env.schema.string({ format: 'url', tld: false }),
   IAM_POST_LOGOUT_REDIRECT_URI: Env.schema.string.optional({ format: 'url', tld: false }),
+  // Seconds between re-checks of a signed-in user's access with IAM (default 300).
+  IAM_RECHECK_SECONDS: Env.schema.number.optional(),
 
   // Object storage (Adonis Drive). `r2` in every real environment; `fs` is
   // a local disk for tests. R2_* are optional so the app boots without a
@@ -56,4 +58,23 @@ export default await Env.create(new URL('../', import.meta.url), {
   STORAGE_DOWNLOAD_URL_TTL: Env.schema.string.optional(),
   // Largest file accepted for a single presigned PUT.
   STORAGE_MAX_SINGLE_PUT_BYTES: Env.schema.number.optional(),
+
+  // Queue (@adonisjs/queue). `database` stores jobs in Postgres; `sync`
+  // runs them inline (tests).
+  QUEUE_DRIVER: Env.schema.enum(['database', 'sync'] as const),
+
+  // Rate limiting (@adonisjs/limiter). `database` keeps counters in the
+  // `rate_limits` table, shared by all replicas; `memory` is for tests.
+  LIMITER_STORE: Env.schema.enum(['database', 'memory'] as const),
+
+  // Mail (@adonisjs/mail, SMTP). Optional: nothing is sent unless
+  // MAIL_ENABLED=true, so the SMTP settings may be left unset.
+  MAIL_ENABLED: Env.schema.boolean.optional(),
+  MAIL_FROM_ADDRESS: Env.schema.string.optional({ format: 'email' }),
+  MAIL_FROM_NAME: Env.schema.string.optional(),
+  SMTP_HOST: Env.schema.string.optional({ format: 'host' }),
+  SMTP_PORT: Env.schema.number.optional(),
+  SMTP_SECURE: Env.schema.boolean.optional(),
+  SMTP_USERNAME: Env.schema.string.optional(),
+  SMTP_PASSWORD: Env.schema.secret.optional(),
 })

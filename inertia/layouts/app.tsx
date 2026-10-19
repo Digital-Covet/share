@@ -1,6 +1,6 @@
 import Logo from '~/components/logo'
 import { type ReactNode } from 'react'
-import { House, LogOut } from 'lucide-react'
+import { ArrowLeftRight, House, LogOut, Send } from 'lucide-react'
 import { Form } from '@adonisjs/inertia/react'
 import FlashToasts from '~/components/flash_toasts'
 import ThemeToggle from '~/components/theme_toggle'
@@ -10,7 +10,11 @@ import NavLink, { type NavItem } from '~/components/nav_link'
  * Top-level app navigation. Add an entry here for every new area of your
  * app, and it shows up in the navigation bar with its active state handled.
  */
-const nav: NavItem[] = [{ label: 'Dashboard', route: 'dashboard', icon: House }]
+const nav: NavItem[] = [
+  { label: 'Dashboard', route: 'dashboard', icon: House },
+  { label: 'Transfers', route: 'transfers.index', icon: ArrowLeftRight },
+  { label: 'New transfer', route: 'transfers.create', icon: Send },
+]
 
 export default function AppLayout({ children }: { children: ReactNode }) {
   return (
