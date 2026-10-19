@@ -9,43 +9,37 @@ const routes = {
   'home': {
     methods: ["GET","HEAD"],
     pattern: '/',
-    tokens: [{"old":"/","type":0,"val":"/","end":""}],
+    tokens: [[0,"/"]],
     types: placeholder as Registry['home']['types'],
-  },
-  'new_account.create': {
-    methods: ["GET","HEAD"],
-    pattern: '/signup',
-    tokens: [{"old":"/signup","type":0,"val":"signup","end":""}],
-    types: placeholder as Registry['new_account.create']['types'],
-  },
-  'new_account.store': {
-    methods: ["POST"],
-    pattern: '/signup',
-    tokens: [{"old":"/signup","type":0,"val":"signup","end":""}],
-    types: placeholder as Registry['new_account.store']['types'],
   },
   'session.create': {
     methods: ["GET","HEAD"],
     pattern: '/login',
-    tokens: [{"old":"/login","type":0,"val":"login","end":""}],
+    tokens: [[0,"login"]],
     types: placeholder as Registry['session.create']['types'],
   },
-  'session.store': {
-    methods: ["POST"],
-    pattern: '/login',
-    tokens: [{"old":"/login","type":0,"val":"login","end":""}],
-    types: placeholder as Registry['session.store']['types'],
+  'iam.redirect': {
+    methods: ["GET","HEAD"],
+    pattern: '/auth/iam/redirect',
+    tokens: [[0,"auth"],[0,"iam"],[0,"redirect"]],
+    types: placeholder as Registry['iam.redirect']['types'],
+  },
+  'iam.callback': {
+    methods: ["GET","HEAD"],
+    pattern: '/auth/iam/callback',
+    tokens: [[0,"auth"],[0,"iam"],[0,"callback"]],
+    types: placeholder as Registry['iam.callback']['types'],
   },
   'dashboard': {
     methods: ["GET","HEAD"],
     pattern: '/dashboard',
-    tokens: [{"old":"/dashboard","type":0,"val":"dashboard","end":""}],
+    tokens: [[0,"dashboard"]],
     types: placeholder as Registry['dashboard']['types'],
   },
   'session.destroy': {
     methods: ["POST"],
     pattern: '/logout',
-    tokens: [{"old":"/logout","type":0,"val":"logout","end":""}],
+    tokens: [[0,"logout"]],
     types: placeholder as Registry['session.destroy']['types'],
   },
 } as const satisfies Record<string, AdonisEndpoint>

@@ -1,22 +1,18 @@
-import User from '#models/user'
-import { loginValidator } from '#validators/user'
 import type { HttpContext } from '@adonisjs/core/http'
+import IamClient from '#services/iam_client'
+import { ID_TOKEN_KEY } from '#controllers/iam_controller'
 
 export default class SessionController {
   async create({ inertia }: HttpContext) {
     return inertia.render('auth/login', {})
   }
 
-  async store({ request, auth, response }: HttpContext) {
-    const { email, password } = await request.validateUsing(loginValidator)
-    const user = await User.verifyCredentials(email, password)
-
-    await auth.use('web').login(user)
-    response.redirect().toRoute('dashboard')
-  }
-
-  async destroy({ auth, response }: HttpContext) {
+  /** Sign out of Share, then end the IAM session too (RP-initiated logout). */
+  async destroy({ auth, session, inertia }: HttpContext) {
+    const idToken = (session.get(ID_TOKEN_KEY) as string | undefined) ?? null
     await auth.use('web').logout()
-    response.redirect().toRoute('session.create')
+    session.forget(ID_TOKEN_KEY)
+    // An external redirect from an Inertia request has to go through location().
+    return inertia.location(IamClient.logoutUrl(idToken))
   }
 }

@@ -24,4 +24,20 @@ export default await Env.create(new URL('../', import.meta.url), {
 
   // Session
   SESSION_DRIVER: Env.schema.enum(['cookie', 'memory', 'database'] as const),
+
+  // Database
+  // DATABASE_URL: Neon pooler (PgBouncer, transaction mode) for runtime
+  // DATABASE_URL_UNPOOLED: direct connection for migrations/DDL
+  // Plain strings: the `url` format rejects the `postgresql://` scheme.
+  DATABASE_URL: Env.schema.string(),
+  DATABASE_URL_UNPOOLED: Env.schema.string(),
+
+  // IAM (OAuth 2.0 / OIDC provider)
+  // IAM_ISSUER must equal IAM's APP_URL (the `iss` of its tokens).
+  // IAM_CLIENT_SECRET is empty for a public (PKCE-only) client.
+  IAM_ISSUER: Env.schema.string({ format: 'url', tld: false }),
+  IAM_CLIENT_ID: Env.schema.string(),
+  IAM_CLIENT_SECRET: Env.schema.string.optional(),
+  IAM_REDIRECT_URI: Env.schema.string({ format: 'url', tld: false }),
+  IAM_POST_LOGOUT_REDIRECT_URI: Env.schema.string.optional({ format: 'url', tld: false }),
 })

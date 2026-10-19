@@ -7,19 +7,99 @@
 import { BaseModel, column } from '@adonisjs/lucid/orm'
 import { DateTime } from 'luxon'
 
+export class TransferSchema extends BaseModel {
+  static $columns = ['createdAt', 'createdBy', 'deletedAt', 'expiresAt', 'id', 'maxDownloads', 'message', 'passwordHash', 'title', 'updatedAt'] as const
+  $columns = TransferSchema.$columns
+  @column.dateTime({ autoCreate: true })
+  declare createdAt: DateTime
+  @column()
+  declare createdBy: string
+  @column.dateTime()
+  declare deletedAt: DateTime | null
+  @column.dateTime()
+  declare expiresAt: DateTime
+  @column({ isPrimary: true })
+  declare id: string
+  @column()
+  declare maxDownloads: number | null
+  @column()
+  declare message: string | null
+  @column({ serializeAs: null })
+  declare passwordHash: string | null
+  @column()
+  declare title: string
+  @column.dateTime({ autoCreate: true, autoUpdate: true })
+  declare updatedAt: DateTime
+}
+
+export class TransferDownloadSchema extends BaseModel {
+  static $columns = ['downloadedAt', 'id', 'ipAddress', 'success', 'transferFileId', 'transferId', 'userAgent', 'userId'] as const
+  $columns = TransferDownloadSchema.$columns
+  @column.dateTime({ autoCreate: true })
+  declare downloadedAt: DateTime
+  @column({ isPrimary: true })
+  declare id: string
+  @column()
+  declare ipAddress: string | null
+  @column()
+  declare success: boolean
+  @column()
+  declare transferFileId: string | null
+  @column()
+  declare transferId: string
+  @column()
+  declare userAgent: string | null
+  @column()
+  declare userId: string
+}
+
+export class TransferFileSchema extends BaseModel {
+  static $columns = ['createdAt', 'deletedAt', 'filename', 'id', 'mimeType', 'objectKey', 'sizeBytes', 'transferId'] as const
+  $columns = TransferFileSchema.$columns
+  @column.dateTime({ autoCreate: true })
+  declare createdAt: DateTime
+  @column.dateTime()
+  declare deletedAt: DateTime | null
+  @column()
+  declare filename: string
+  @column({ isPrimary: true })
+  declare id: string
+  @column()
+  declare mimeType: string | null
+  @column()
+  declare objectKey: string
+  @column()
+  declare sizeBytes: number
+  @column()
+  declare transferId: string
+}
+
+export class TransferRecipientSchema extends BaseModel {
+  static $columns = ['createdAt', 'id', 'transferId', 'userId'] as const
+  $columns = TransferRecipientSchema.$columns
+  @column.dateTime({ autoCreate: true })
+  declare createdAt: DateTime
+  @column({ isPrimary: true })
+  declare id: string
+  @column()
+  declare transferId: string
+  @column()
+  declare userId: string
+}
+
 export class UserSchema extends BaseModel {
-  static $columns = ['createdAt', 'email', 'fullName', 'id', 'password', 'updatedAt'] as const
+  static $columns = ['createdAt', 'email', 'id', 'image', 'name', 'updatedAt'] as const
   $columns = UserSchema.$columns
   @column.dateTime({ autoCreate: true })
   declare createdAt: DateTime
   @column()
   declare email: string
-  @column()
-  declare fullName: string | null
   @column({ isPrimary: true })
-  declare id: number
-  @column({ serializeAs: null })
-  declare password: string
+  declare id: string
+  @column()
+  declare image: string | null
+  @column()
+  declare name: string | null
   @column.dateTime({ autoCreate: true, autoUpdate: true })
-  declare updatedAt: DateTime | null
+  declare updatedAt: DateTime
 }

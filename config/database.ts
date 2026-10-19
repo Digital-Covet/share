@@ -1,142 +1,82 @@
+import env from '#start/env'
 import app from '@adonisjs/core/services/app'
 import { defineConfig } from '@adonisjs/lucid'
+import pg from 'pg'
+
+/**
+ * Return Postgres BIGINT (OID 20) as a JavaScript number instead of a
+ * string. Values stored here (file sizes capped at 5 GiB, row counts)
+ * stay well within Number.MAX_SAFE_INTEGER.
+ */
+pg.types.setTypeParser(20, (value) => Number(value))
+
+/**
+ * Pin every pooled connection to UTC.
+ */
+const afterCreate = (conn: any, done: (err: Error | null, conn: any) => void) => {
+  conn.query(`SET timezone='UTC';`, (err: Error) => done(err, conn))
+}
 
 const dbConfig = defineConfig({
   /**
    * Default connection used for all queries.
+   * Runtime uses the Neon pooler (PgBouncer, transaction mode).
+   * Run migrations/DDL via the unpooled connection:
+   * `node ace migration:run --connection=postgres_direct`
    */
-  connection: 'sqlite',
+  connection: 'postgres',
 
   connections: {
     /**
-     * SQLite connection (default).
+     * Neon pooled connection (runtime).
      */
-    sqlite: {
-      client: 'better-sqlite3',
-
+    postgres: {
+      client: 'pg',
       connection: {
-        /**
-         * Database file location.
-         */
-        filename: app.tmpPath('db.sqlite3'),
+        connectionString: env.get('DATABASE_URL'),
       },
-
-      /**
-       * Required by Knex for SQLite defaults.
-       */
-      useNullAsDefault: true,
-
+      pool: {
+        min: 0,
+        max: 10,
+        acquireTimeoutMillis: 60_000,
+        afterCreate,
+      },
       migrations: {
-        /**
-         * Sort migration files naturally by filename.
-         */
         naturalSort: true,
-
-        /**
-         * Paths containing migration files.
-         */
         paths: ['database/migrations'],
       },
-
       schemaGeneration: {
         enabled: true,
         rulesPaths: ['./database/schema_rules.js'],
       },
+      debug: app.inDev,
     },
 
     /**
-     * PostgreSQL connection.
-     * Install package to switch: npm install pg
+     * Neon direct (unpooled) connection. Migrations/DDL.
+     * Usage: `node ace migration:run --connection=postgres_direct`
      */
-    // pg: {
-    //   client: 'pg',
-    //   connection: {
-    //     host: env.get('DB_HOST'),
-    //     port: env.get('DB_PORT'),
-    //     user: env.get('DB_USER'),
-    //     password: env.get('DB_PASSWORD'),
-    //     database: env.get('DB_DATABASE'),
-    //   },
-    //   migrations: {
-    //     naturalSort: true,
-    //     paths: ['database/migrations'],
-    //   },
-    //   schemaGeneration: {
-    //     enabled: true,
-    //     rulesPaths: ['./database/schema_rules.js'],
-    //   },
-    //   debug: app.inDev,
-    // },
-
-    /**
-     * MySQL / MariaDB connection.
-     * Install package to switch: npm install mysql2
-     */
-    // mysql: {
-    //   client: 'mysql2',
-    //   connection: {
-    //     host: env.get('DB_HOST'),
-    //     port: env.get('DB_PORT'),
-    //     user: env.get('DB_USER'),
-    //     password: env.get('DB_PASSWORD'),
-    //     database: env.get('DB_DATABASE'),
-    //   },
-    //   migrations: {
-    //     naturalSort: true,
-    //     paths: ['database/migrations'],
-    //   },
-    //   schemaGeneration: {
-    //     enabled: true,
-    //     rulesPaths: ['./database/schema_rules.js'],
-    //   },
-    //   debug: app.inDev,
-    // },
-
-    /**
-     * Microsoft SQL Server connection.
-     * Install package to switch: npm install tedious
-     */
-    // mssql: {
-    //   client: 'mssql',
-    //   connection: {
-    //     server: env.get('DB_HOST'),
-    //     port: env.get('DB_PORT'),
-    //     user: env.get('DB_USER'),
-    //     password: env.get('DB_PASSWORD'),
-    //     database: env.get('DB_DATABASE'),
-    //   },
-    //   migrations: {
-    //     naturalSort: true,
-    //     paths: ['database/migrations'],
-    //   },
-    //   schemaGeneration: {
-    //     enabled: true,
-    //     rulesPaths: ['./database/schema_rules.js'],
-    //   },
-    //   debug: app.inDev,
-    // },
-
-    /**
-     * libSQL (Turso) connection.
-     * Install package to switch: npm install @libsql/client
-     */
-    // libsql: {
-    //   client: 'libsql',
-    //   connection: {
-    //     url: env.get('LIBSQL_URL'),
-    //     authToken: env.get('LIBSQL_AUTH_TOKEN'),
-    //   },
-    //   useNullAsDefault: true,
-    //   migrations: {
-    //     naturalSort: true,
-    //     paths: ['database/migrations'],
-    //   },
-    //   schemaGeneration: {
-    //     enabled: true,
-    //     rulesPaths: ['./database/schema_rules.js'],
-    //   },
-    //   debug: app.inDev,
-    // },
+    postgres_direct: {
+      client: 'pg',
+      connection: {
+        connectionString: env.get('DATABASE_URL_UNPOOLED'),
+      },
+      pool: {
+        min: 0,
+        max: 5,
+        acquireTimeoutMillis: 60_000,
+        afterCreate,
+      },
+      migrations: {
+        naturalSort: true,
+        paths: ['database/migrations'],
+      },
+      schemaGeneration: {
+        enabled: true,
+        rulesPaths: ['./database/schema_rules.js'],
+      },
+      debug: app.inDev,
+    },
   },
 })
 
