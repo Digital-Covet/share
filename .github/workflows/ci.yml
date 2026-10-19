@@ -1,0 +1,105 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # Lint, typecheck, unit + functional tests (SQLite, see .env.test) and build.
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 12.12.1
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+
+      # .env.test only overrides; the rest (PORT, HOST, APP_URL, ...) comes
+      # from the documented defaults.
+      - name: Write .env from defaults
+        run: cp .env.example .env
+
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm lint
+      - run: pnpm typecheck
+      # Browser suite excluded.
+      - run: node ace test unit functional
+      - run: pnpm build
+
+  # Builds the image, runs the migrations from it against a real Postgres
+  # (tests use SQLite, so this is where the Postgres DDL is exercised) and
+  # checks that the web container serves GET /.
+  image:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:17
+        env:
+          POSTGRES_USER: share
+          POSTGRES_PASSWORD: share
+          POSTGRES_DB: share
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build image
+        run: docker build -t covetdrop .
+
+      - name: Write container env
+        run: |
+          cat > ci.env <<'EOF'
+          NODE_ENV=production
+          PORT=3334
+          HOST=0.0.0.0
+          LOG_LEVEL=info
+          APP_KEY=ci-app-key-not-secret-0123456789abcd
+          APP_URL=http://localhost:3334
+          SESSION_DRIVER=cookie
+          DATABASE_URL=postgresql://share:share@localhost:5432/share
+          DATABASE_URL_UNPOOLED=postgresql://share:share@localhost:5432/share
+          IAM_ISSUER=http://localhost:3333
+          IAM_CLIENT_ID=ci
+          IAM_REDIRECT_URI=http://localhost:3334/auth/iam/callback
+          DRIVE_DISK=r2
+          QUEUE_DRIVER=database
+          LIMITER_STORE=database
+          MAIL_ENABLED=false
+          EOF
+
+      - name: Run migrations
+        run: >-
+          docker run --rm --network host --env-file ci.env covetdrop
+          node ace migration:run --connection=postgres_direct --force
+
+      - name: Serve GET /
+        run: |
+          docker run -d --name web --network host --env-file ci.env covetdrop
+          for i in $(seq 1 30); do
+            if curl -fsS -o /dev/null http://localhost:3334/; then
+              echo "GET / -> 200"
+              exit 0
+            fi
+            sleep 1
+          done
+          docker logs web
+          exit 1
+
+      - name: Container logs
+        if: always()
+        run: docker logs web || true

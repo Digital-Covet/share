@@ -1,0 +1,20 @@
+# Rebuilt inside the image
+node_modules
+build
+public/assets
+tmp
+
+# Secrets and local config: the container gets its env at run time
+.env
+.env.*
+
+# Not needed to build (tests/ stays: bin/test.ts imports it and tsc checks it)
+.git
+.github
+docs
+*.md
+Dockerfile
+.dockerignore
+.vscode
+.idea
+.fleet
