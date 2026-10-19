@@ -13,6 +13,33 @@ test.group('Smoke', (group) => {
     response.assertHeader('location', '/login')
   })
 
+  test('root redirects to the dashboard', async ({ client }) => {
+    const response = await client.get('/').redirects(0)
+
+    response.assertStatus(302)
+    response.assertHeader('location', '/dashboard')
+  })
+
+  test('login page is noindex and carries link-preview metadata', async ({ client, assert }) => {
+    const response = await client.get('/login')
+
+    response.assertStatus(200)
+    response.assertHeader('x-robots-tag', 'noindex, nofollow')
+    assert.include(response.text(), '<meta name="robots" content="noindex, nofollow" />')
+    assert.match(
+      response.text(),
+      /<meta property="og:image" content="https?:\/\/[^"]+\/og-image\.png" \/>/
+    )
+    assert.include(response.text(), '<html lang="en"')
+  })
+
+  test('robots.txt disallows crawling', async ({ client, assert }) => {
+    const response = await client.get('/robots.txt')
+
+    response.assertStatus(200)
+    assert.include(response.text(), 'Disallow: /')
+  })
+
   test('dashboard renders for a signed-in user', async ({ client, assert }) => {
     const user = await UserFactory.create()
 

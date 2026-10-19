@@ -12,6 +12,12 @@ import { controllers } from '#generated/controllers'
 import router from '@adonisjs/core/services/router'
 import { throttleCreates, throttleDownloads } from '#start/limiter'
 
+/**
+ * There is no public home page: the root sends signed-in users to the
+ * dashboard, and the auth middleware there sends guests on to /login.
+ */
+router.get('/', ({ response }) => response.redirect().toRoute('dashboard'))
+
 router
   .group(() => {
     router.get('login', [controllers.Session, 'create'])

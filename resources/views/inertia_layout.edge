@@ -1,11 +1,36 @@
+@let(theme = request.plainCookie('app_theme', { defaultValue: 'light', encoded: false }))
+@let(description = 'Secure file transfers for the Digital Covet team.')
 <!DOCTYPE html>
-<html data-theme="{{ request.plainCookie('app_theme', { defaultValue: 'light', encoded: false }) }}">
+<html lang="en" data-theme="{{ theme }}">
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <title data-inertia>
       CovetDrop
     </title>
+    <meta name="description" content="{{ description }}" />
+    {{-- Share is private: keep every page out of search results. --}}
+    <meta name="robots" content="noindex, nofollow" />
+    {{-- Matches --canvas in inertia/css/app.css. --}}
+    <meta name="theme-color" content="{{ theme === 'dark' ? '#0c0a09' : '#f5f5f4' }}" />
+
+    <link rel="icon" href="/favicon.ico" sizes="32x32" />
+    <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+
+    {{--
+      Link previews (Slack, email). Static on purpose: SSR is off and guests
+      are redirected to /login, so no transfer details may ever appear here.
+    --}}
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="CovetDrop" />
+    <meta property="og:title" content="CovetDrop" />
+    <meta property="og:description" content="{{ description }}" />
+    <meta property="og:image" content="{{ appUrl }}/og-image.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="CovetDrop" />
+    <meta name="twitter:card" content="summary_large_image" />
 
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
