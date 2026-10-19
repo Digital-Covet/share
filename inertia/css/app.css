@@ -22,6 +22,8 @@
   --primary: #1c1917;
   --primary-hover: #292524;
   --hover: #ecebe9;
+  /* Lighter than --hover so amber stamp text stays above 4.5:1 on it. */
+  --row-hover: #f8f7f5;
   --dur-fast: 120ms;
   --dur-settle: 220ms;
   color-scheme: light;
@@ -43,6 +45,7 @@
   --primary: #f5f5f4;
   --primary-hover: #e7e5e4;
   --hover: #292524;
+  --row-hover: #231f1b;
   color-scheme: dark;
 }
 
@@ -58,10 +61,12 @@
   --color-accent: var(--accent);
   --color-danger: var(--danger);
   --color-ok: var(--ok);
+  --color-row-hover: var(--row-hover);
   --font-sans: 'Instrument Sans', ui-sans-serif, system-ui, sans-serif;
   --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, monospace;
   --radius-card: 6px;
   --shadow-label: 0 1px 0 rgb(28 25 23 / 0.04), 0 12px 32px -12px rgb(28 25 23 / 0.18);
+  --shadow-card: 0 1px 0 rgb(28 25 23 / 0.04), 0 4px 12px -6px rgb(28 25 23 / 0.1);
 }
 
 /* ------------------------------------------------------------------------
@@ -659,6 +664,334 @@
     .dispatch__stamp {
       animation: stamp-in var(--dur-settle) ease-out 120ms both;
     }
+  }
+
+  /* ----------------------------------------------------------------------
+   * Manifest (pages/dashboard.tsx, components/transfer_list.tsx). A card
+   * with a punched top edge and a paper header strip, over ledger rows.
+   * -------------------------------------------------------------------- */
+  .manifest {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: var(--radius-card);
+    box-shadow: var(--shadow-card);
+  }
+  /* Tractor-feed holes punched along the header strip. */
+  .manifest::before {
+    content: '';
+    position: absolute;
+    top: 5px;
+    left: 12px;
+    right: 12px;
+    height: 6px;
+    background: radial-gradient(
+        circle 3px,
+        var(--canvas) 62%,
+        var(--line-strong) 68% 88%,
+        transparent 100%
+      )
+      0 0 / 14px 6px repeat-x;
+    pointer-events: none;
+  }
+  .manifest__head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    padding: 20px 16px 10px;
+    background: var(--paper);
+    border-radius: calc(var(--radius-card) - 1px) calc(var(--radius-card) - 1px) 0 0;
+  }
+  .manifest__title {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    color: var(--ink);
+  }
+  .manifest__title > svg {
+    color: var(--muted);
+  }
+  .manifest__more {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    border-radius: 4px;
+    color: var(--muted);
+    font-size: 12px;
+    font-weight: 500;
+    transition: color var(--dur-fast) ease;
+  }
+  .manifest__more:hover {
+    color: var(--ink);
+  }
+  .manifest__more > svg {
+    transition: transform var(--dur-fast) ease;
+  }
+  .manifest__more:hover > svg {
+    transform: translateX(2px);
+  }
+  .manifest__rule {
+    border-top: 1px solid var(--line);
+  }
+  .manifest__empty {
+    padding: 24px 16px;
+    color: var(--muted);
+    text-align: center;
+  }
+
+  /* The list stands alone on /transfers and sits inside a .manifest here. */
+  .manifest-list {
+    overflow: hidden;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: var(--radius-card);
+  }
+  .manifest-list > li + li {
+    border-top: 1px solid var(--line);
+  }
+  .manifest .manifest-list {
+    border: 0;
+    border-radius: 0 0 calc(var(--radius-card) - 1px) calc(var(--radius-card) - 1px);
+  }
+  .manifest-row {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    padding: 12px 16px;
+    transition: background-color var(--dur-fast) ease;
+  }
+  .manifest-row:hover {
+    background: var(--row-hover);
+  }
+  /* The list clips overflow, so draw the ring inside the row. */
+  .manifest-row:focus-visible {
+    outline-offset: -2px;
+  }
+  .manifest-row__top {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px;
+  }
+  .manifest-row__title {
+    min-width: 0;
+    overflow: hidden;
+    font-weight: 500;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  /* Every item leads with a dot; the negative margin + clip hides the dot
+     of whichever item starts a line, so wrapped lines never open with one. */
+  .manifest-row__meta {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    row-gap: 2px;
+    margin-left: -16px;
+    overflow: hidden;
+    color: var(--faint);
+    font-size: 12px;
+    line-height: 20px;
+    font-variant-numeric: tabular-nums;
+  }
+  .manifest-row__meta > *::before {
+    content: '·';
+    display: inline-block;
+    width: 16px;
+    color: var(--line-strong);
+    text-align: center;
+  }
+  .manifest-row__from {
+    display: inline-flex;
+    align-items: center;
+    color: var(--muted);
+  }
+  .manifest-row__from .avatar {
+    margin-right: 6px;
+  }
+
+  /* Rubber-stamp status badge */
+  .stamp {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 1px 6px;
+    border: 1.5px solid currentColor;
+    border-radius: 3px;
+    font-weight: 500;
+    white-space: nowrap;
+    transform: rotate(-2deg);
+  }
+  .stamp--danger {
+    color: var(--danger);
+  }
+  .stamp--warn {
+    color: var(--accent);
+  }
+
+  /* User avatar (components/ui/avatar.tsx, Base UI Avatar) */
+  .avatar {
+    display: inline-grid;
+    place-items: center;
+    flex-shrink: 0;
+    overflow: hidden;
+    border-radius: 999px;
+    background: var(--paper);
+    box-shadow: inset 0 0 0 1px var(--line-strong);
+    color: var(--muted);
+    font-family: var(--font-mono);
+    font-weight: 500;
+    line-height: 1;
+    user-select: none;
+  }
+  .avatar__image {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+  }
+
+  /* ----------------------------------------------------------------------
+   * Account menu (components/account_menu.tsx, Base UI Menu)
+   * -------------------------------------------------------------------- */
+  .account-trigger {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    height: 32px;
+    max-width: 16rem;
+    padding: 0 8px 0 4px;
+    border: 1px solid var(--line);
+    border-radius: var(--radius-card);
+    background: var(--surface);
+    color: var(--ink);
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: background-color var(--dur-fast) ease;
+  }
+  .account-trigger:hover,
+  .account-trigger[data-popup-open] {
+    background: var(--hover);
+  }
+  .account-trigger__name {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .account-trigger__chevron {
+    flex-shrink: 0;
+    color: var(--muted);
+    transition: transform var(--dur-fast) ease;
+  }
+  .account-trigger[data-popup-open] .account-trigger__chevron {
+    transform: rotate(180deg);
+  }
+  /* Phones: the avatar alone is the trigger. */
+  @media (max-width: 639px) {
+    .account-trigger {
+      padding-right: 6px;
+    }
+    .account-trigger__name {
+      display: none;
+    }
+  }
+
+  .menu {
+    min-width: 15rem;
+    max-width: calc(100vw - 32px);
+    padding: 4px;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: var(--radius-card);
+    box-shadow: var(--shadow-label);
+    color: var(--ink);
+    outline: none;
+    transform-origin: var(--transform-origin);
+    transition: opacity var(--dur-fast) ease;
+  }
+  .menu[data-starting-style],
+  .menu[data-ending-style] {
+    opacity: 0;
+  }
+  @media (prefers-reduced-motion: no-preference) {
+    .menu {
+      transition:
+        opacity var(--dur-fast) ease,
+        transform var(--dur-fast) ease-out;
+    }
+    .menu[data-starting-style],
+    .menu[data-ending-style] {
+      transform: scale(0.97);
+    }
+  }
+  .menu__head {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 8px 8px 10px;
+  }
+  .menu__who {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+  }
+  .menu__name,
+  .menu__email {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .menu__name {
+    font-weight: 600;
+  }
+  .menu__email {
+    color: var(--muted);
+    font-size: 12px;
+    line-height: 16px;
+  }
+  .menu__sep {
+    margin: 4px -4px;
+    border-top: 1px solid var(--line);
+  }
+  .menu__item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    height: 34px;
+    padding: 0 8px;
+    border-radius: 4px;
+    color: var(--ink);
+    font-size: 13px;
+    font-weight: 500;
+    outline: none;
+    cursor: pointer;
+    user-select: none;
+  }
+  .menu__item > svg {
+    color: var(--muted);
+  }
+  .menu__item[data-highlighted] {
+    background: var(--hover);
+  }
+  .menu__item[data-highlighted] > svg {
+    color: var(--ink);
+  }
+
+  /* First-run empty state: the dispatch label on a paper panel. */
+  .empty__label {
+    display: flex;
+    justify-content: center;
+    width: 100%;
+    margin-bottom: 16px;
+    padding: 28px 16px 24px;
+    background: var(--paper);
+    border: 1px solid var(--line);
+    border-radius: var(--radius-card);
   }
 
   /* Mono label used for eyebrows, captions and the dispatch label */

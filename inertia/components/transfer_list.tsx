@@ -1,6 +1,9 @@
 import { type ReactNode } from 'react'
 import { type Data } from '@generated/data'
 import { Link } from '@adonisjs/inertia/react'
+import { CircleSlash, CloudAlert } from 'lucide-react'
+import { Tip } from '~/components/ui/tooltip'
+import { UserAvatar } from '~/components/ui/avatar'
 import { formatBytes } from '~/components/file_upload_list'
 
 export type TransferListItem = Data.Transfer.Variants['toListItem']
@@ -24,27 +27,36 @@ export default function TransferList({
   empty: ReactNode
 }) {
   if (transfers.length === 0) {
-    return <p className="py-6 text-center text-sm text-neutral-500">{empty}</p>
+    return <p className="manifest__empty">{empty}</p>
   }
 
   return (
-    <ul className="divide-y divide-neutral-200 rounded-md border border-neutral-200 dark:divide-neutral-800 dark:border-neutral-800">
+    <ul className="manifest-list">
       {transfers.map((transfer) => (
         <li key={transfer.id}>
-          <Link
-            route="transfers.show"
-            routeParams={{ id: transfer.id }}
-            className="flex flex-col gap-1 px-3 py-2.5 text-sm hover:bg-neutral-50 dark:hover:bg-neutral-900"
-          >
-            <span className="flex flex-wrap items-center gap-2">
-              <span className="min-w-0 truncate font-medium" title={transfer.title}>
-                {transfer.title}
-              </span>
-              {transfer.isExpired && <Badge tone="red">Expired</Badge>}
-              {!transfer.isConfirmed && <Badge tone="amber">Upload not confirmed</Badge>}
+          <Link route="transfers.show" routeParams={{ id: transfer.id }} className="manifest-row">
+            <span className="manifest-row__top">
+              <Tip label={transfer.title} side="top">
+                <span className="manifest-row__title">{transfer.title}</span>
+              </Tip>
+              {transfer.isExpired && (
+                <Badge tone="red" icon={<CircleSlash size={11} aria-hidden="true" />}>
+                  Expired
+                </Badge>
+              )}
+              {!transfer.isConfirmed && (
+                <Badge tone="amber" icon={<CloudAlert size={11} aria-hidden="true" />}>
+                  Upload not confirmed
+                </Badge>
+              )}
             </span>
-            <span className="flex flex-wrap gap-x-3 text-xs text-neutral-500">
-              {showCreator && <span>From {personLabel(transfer.creator)}</span>}
+            <span className="manifest-row__meta">
+              {showCreator && (
+                <span className="manifest-row__from">
+                  <UserAvatar user={transfer.creator} />
+                  From {personLabel(transfer.creator)}
+                </span>
+              )}
               <span>
                 {transfer.fileCount} {transfer.fileCount === 1 ? 'file' : 'files'}
                 {transfer.fileCount > 0 && ` · ${formatBytes(transfer.totalBytes)}`}
@@ -67,13 +79,22 @@ export default function TransferList({
 }
 
 const BADGE_TONES = {
-  red: 'bg-red-100 text-red-800 dark:bg-red-950 dark:text-red-300',
-  amber: 'bg-amber-100 text-amber-900 dark:bg-amber-950 dark:text-amber-200',
+  red: 'stamp--danger',
+  amber: 'stamp--warn',
 }
 
-function Badge({ tone, children }: { tone: keyof typeof BADGE_TONES; children: ReactNode }) {
+function Badge({
+  tone,
+  icon,
+  children,
+}: {
+  tone: keyof typeof BADGE_TONES
+  icon: ReactNode
+  children: ReactNode
+}) {
   return (
-    <span className={`rounded-full px-2 py-0.5 text-xs font-medium ${BADGE_TONES[tone]}`}>
+    <span className={`stamp label-mono ${BADGE_TONES[tone]}`}>
+      {icon}
       {children}
     </span>
   )

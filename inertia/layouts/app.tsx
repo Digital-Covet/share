@@ -1,7 +1,7 @@
 import Logo from '~/components/logo'
 import { type ReactNode } from 'react'
-import { ArrowLeftRight, House, LogOut, Send } from 'lucide-react'
-import { Form } from '@adonisjs/inertia/react'
+import { ArrowLeftRight, House, Send } from 'lucide-react'
+import AccountMenu from '~/components/account_menu'
 import FlashToasts from '~/components/flash_toasts'
 import ThemeToggle from '~/components/theme_toggle'
 import NavLink, { type NavItem } from '~/components/nav_link'
@@ -24,11 +24,7 @@ export default function AppLayout({ children }: { children: ReactNode }) {
           <Logo size={28} />
           <div className="header__right">
             <ThemeToggle />
-            <Form route="session.destroy">
-              <button type="submit" className="btn btn--secondary btn--sm">
-                <LogOut size={15} /> Log out
-              </button>
-            </Form>
+            <AccountMenu />
           </div>
         </div>
       </header>
