@@ -98,7 +98,7 @@ export class RateLimitSchema extends BaseModel {
 }
 
 export class TransferSchema extends BaseModel {
-  static $columns = ['createdAt', 'createdBy', 'deletedAt', 'expiresAt', 'id', 'maxDownloads', 'message', 'passwordHash', 'title', 'updatedAt'] as const
+  static $columns = ['createdAt', 'createdBy', 'deletedAt', 'expiresAt', 'expiryReminderSentAt', 'id', 'maxDownloads', 'message', 'passwordHash', 'title', 'updatedAt'] as const
   $columns = TransferSchema.$columns
   @column.dateTime({ autoCreate: true })
   declare createdAt: DateTime
@@ -108,6 +108,8 @@ export class TransferSchema extends BaseModel {
   declare deletedAt: DateTime | null
   @column.dateTime()
   declare expiresAt: DateTime
+  @column.dateTime()
+  declare expiryReminderSentAt: DateTime | null
   @column({ isPrimary: true })
   declare id: string
   @column()

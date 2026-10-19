@@ -11,5 +11,7 @@
 */
 
 import CleanupTransfersJob from '#jobs/cleanup_transfers_job'
+import SendExpiryRemindersJob from '#jobs/send_expiry_reminders_job'
 
 await CleanupTransfersJob.schedule({}).id('cleanup-transfers').every('15m').run()
+await SendExpiryRemindersJob.schedule({}).id('expiry-reminders').every('1h').run()
