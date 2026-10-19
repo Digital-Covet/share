@@ -110,16 +110,16 @@ The token lives only in the creator's browser. If it's lost mid-upload, the crea
 |---|-------|-----------|--------|
 | 1 | Set up HTTP test harness and test database | — | ✅ |
 | 2 | Add object storage (Drive + presigned URLs) | 1 | ✅ |
-| 3 | Create & complete transfer API | 1, 2 | ☐ |
-| 4 | Create-transfer page with recipient picker and uploads | 3 | ☐ |
-| 5 | Transfer access policy and detail page | 3 | ☐ |
-| 6 | Download endpoint with checks and tracking | 2, 5 | ☐ |
-| 7 | Transfer list and dashboard | 5 | ☐ |
-| 8 | Roles mirror and soft delete | 5, 7 | ☐ |
-| 9 | Periodic IAM access re-check | 8 | ☐ |
-| 10 | Queue and transfer cleanup | 2, 3 | ☐ |
-| 11 | Email notification on upload confirmation | 10 | ☐ |
-| 12 | Observability and hardening | 6, 10 | ☐ |
+| 3 | Create & complete transfer API | 1, 2 | ✅ |
+| 4 | Create-transfer page with recipient picker and uploads | 3 | 🟡 |
+| 5 | Transfer access policy and detail page | 3 | 🟡 |
+| 6 | Download endpoint with checks and tracking | 2, 5 | 🟡 |
+| 7 | Transfer list and dashboard | 5 | 🟡 |
+| 8 | Roles mirror and soft delete | 5, 7 | 🟡 |
+| 9 | Periodic IAM access re-check | 8 | 🟡 |
+| 10 | Queue and transfer cleanup | 2, 3 | ✅ |
+| 11 | Email notification on upload confirmation | 10 | ✅ |
+| 12 | Observability and hardening | 6, 10 | 🟡 |
 | 13 | Container image and CI | 12 | ☐ |
 
 ---
@@ -227,8 +227,16 @@ See *Shared contracts → StorageService* and *Object keys* in the Overview. Spe
 
 ## Phase 3 — Create & complete transfer API
 
-**Status:** ☐ Not started
+**Status:** ✅ Done
 **Depends on:** Phase 1, Phase 2
+
+> **Implementation notes (2026-10-19):**
+> - **Clients must send `Accept: application/json`** (plus `X-XSRF-TOKEN`). Without it, Adonis treats the request as HTML: validation errors redirect back instead of returning 422, and an unauthenticated request redirects to `/login` instead of returning 401.
+> - Extra file touched: `tests/bootstrap.ts` registers `shieldApiClient()` so tests can call `.withCsrfToken()` (CSRF is on for POSTs).
+> - The `transfer_file` insert goes through `db.knexQuery()`: Lucid drops `RETURNING` on SQLite, which would make `firstConfirmation` always `true` in tests. Same SQL on Postgres.
+> - Duplicate `recipientIds` pass validation and are deduplicated in `TransferService.create`, because VineJS arrays have no `transform`. A creator listed as a recipient fails the `exists` rule (`database.exists`).
+> - `complete` reports `files_missing` before `size_mismatch` when both apply.
+> - On SQLite, Lucid replaces a self-assigned primary key on the model instance with the rowid after insert. The DB row is correct, so tests keep the id in a variable instead of reading `model.id`.
 
 ### Goal
 A signed-in user can create a transfer (metadata, recipients, declared file list) and receive presigned upload URLs plus an upload token, then confirm the upload — which writes the `transfer_file` rows and makes the transfer immediately usable.
@@ -280,17 +288,24 @@ Validation failure → **422** with VineJS errors.
    - complete: 409 `files_missing` when an object is absent (no rows written); 409 `size_mismatch` when an object's size differs; 200 `firstConfirmation: true` after faking objects and rows exist with the manifest ids; second call 200 `firstConfirmation: false` and still exactly N rows; tampered token → 422; token for another transfer → 422; other user → 404; unauthenticated → redirect/401.
 
 ### Done when
-- [ ] `node ace test functional --files=tests/functional/transfers/create.spec.ts` passes (all cases in step 5)
-- [ ] `pnpm test`, `pnpm lint`, `pnpm typecheck` pass
-- [ ] `git status database/migrations` shows no new migrations (no schema change)
-- [ ] No changes outside the files listed above (plus generated `.adonisjs/**`)
+- [x] `node ace test functional --files=tests/functional/transfers/create.spec.ts` passes (all cases in step 5)
+- [x] `pnpm test`, `pnpm lint`, `pnpm typecheck` pass
+- [x] `git status database/migrations` shows no new migrations (no schema change)
+- [x] No changes outside the files listed above (plus generated `.adonisjs/**`) — except `tests/bootstrap.ts` (see notes)
 
 ---
 
 ## Phase 4 — Create-transfer page with recipient picker and uploads
 
-**Status:** ☐ Not started
+**Status:** 🟡 Implemented — manual checks pending
 **Depends on:** Phase 3
+
+> **Implementation notes (2026-10-19):**
+> - `inertia/css/app.css` is only `@import "tailwindcss"` since `9d14102`, so the `btn`/`empty` classes no longer exist. New UI uses Tailwind utilities (the `btn btn--primary` names are kept on buttons alongside them).
+> - User search uses `lower(col) LIKE ? ESCAPE '\'` instead of `ILIKE`, so the same SQL runs on SQLite in tests; `%`/`_` in the query match literally.
+> - The Tuyau route registry (`.adonisjs/client/registry/*`) is regenerated only by the dev server, not by `node ace test` or `pnpm build`; run `pnpm dev` once after adding routes or `pnpm typecheck` fails on the new route names.
+> - Besides `beforeunload`, the page also guards Inertia navigation (`router.on('before')`) while a created transfer's uploads aren't confirmed.
+> - A 422 from `complete` (`invalid_upload_token`) can't be recovered; the page offers "Start a new transfer" instead of retry.
 
 ### Goal
 A user can open "New transfer", pick colleagues, attach files, upload them with progress directly to storage, and land on a confirmation once the upload is confirmed.
@@ -329,18 +344,24 @@ Recipients come from the local `user` mirror (Open question 4). Upload each file
 4. Show 422 field errors inline.
 
 ### Done when
-- [ ] `node ace test functional --files=tests/functional/users/search.spec.ts` passes
-- [ ] `pnpm test`, `pnpm lint`, `pnpm typecheck`, `pnpm build` pass
+- [x] `node ace test functional --files=tests/functional/users/search.spec.ts` passes
+- [x] `pnpm test`, `pnpm lint`, `pnpm typecheck`, `pnpm build` pass
 - [ ] Manual (dev server + real bucket): creating a transfer with two files and one recipient ends with a success toast; DB shows 1 `transfer`, 1 `transfer_recipient` and 2 `transfer_file` rows (the file rows appear only after the `complete` request in the Network tab); both objects exist in the bucket; the Network tab shows file bytes going to the bucket host, not to Share
 - [ ] Submitting with no recipients shows an inline error and makes no `POST /transfers` request
-- [ ] No changes outside the files listed above
+- [x] No changes outside the files listed above (plus generated `.adonisjs/**`)
 
 ---
 
 ## Phase 5 — Transfer access policy and detail page
 
-**Status:** ☐ Not started
+**Status:** 🟡 Implemented — manual check pending
 **Depends on:** Phase 3
+
+> **Implementation notes (2026-10-19):**
+> - `TransferPolicy` methods are static (matching the services). Besides the three listed methods it exposes `viewable(user)` / `downloadable(user)` query builders, which the checks are built on and Phases 6–7 can reuse.
+> - `Transfer.confirmed` is a scope (`whereExists` on any `transfer_file` row). The transformer derives `isConfirmed` from the preloaded, non-deleted `files`; the two agree because file rows are never soft-deleted individually.
+> - `successfulDownloads` comes from `loadCount('downloads', success = true)`; `recipients` is present only when `recipientUsers` is preloaded (creator only), so recipients' props have no `recipients` key.
+> - Luxon dates infer as `string | null` in `Data.Transfer`; the page's date formatter accepts `null`.
 
 ### Goal
 `GET /transfers/:id` shows a transfer's details and file list to the creator and recipients only, enforced by a single reusable policy.
@@ -374,18 +395,26 @@ Non-viewers and soft-deleted transfers → **404**. An unconfirmed transfer is v
 4. Tests: confirmed transfer — creator 200, recipient 200 (no recipients list in props), stranger 404; unconfirmed transfer — creator 200 with `isConfirmed: false`, recipient 404; soft-deleted 404; non-uuid id → 404; unit: `canDownload` true for creator/recipient on confirmed, false on unconfirmed, false for stranger.
 
 ### Done when
-- [ ] `node ace test unit --files=tests/unit/transfer_policy.spec.ts` passes
-- [ ] `node ace test functional --files=tests/functional/transfers/show.spec.ts` passes (all HTTP cases above)
-- [ ] `pnpm test`, `pnpm lint`, `pnpm typecheck` pass
+- [x] `node ace test unit --files=tests/unit/transfer_policy.spec.ts` passes
+- [x] `node ace test functional --files=tests/functional/transfers/show.spec.ts` passes (all HTTP cases above)
+- [x] `pnpm test`, `pnpm lint`, `pnpm typecheck` pass
 - [ ] Manual: after creating a transfer (Phase 4 flow), the browser lands on its detail page
-- [ ] No changes outside the files listed above
+- [x] No changes outside the files listed above (plus generated `.adonisjs/**`)
 
 ---
 
 ## Phase 6 — Download endpoint with checks and tracking
 
-**Status:** ☐ Not started
+**Status:** 🟡 Implemented — manual check pending
 **Depends on:** Phase 2, Phase 5
+
+> **Implementation notes (2026-10-19):**
+> - Check order: viewable → `canDownload` → file belongs to the transfer → expired → password → limit. `canDownload` runs before the file lookup; otherwise the creator of an unconfirmed transfer (which has no file rows) would get 404 instead of the contract's 403.
+> - Expired and password failures are logged outside any transaction. The limit check runs in a transaction that locks the `transfer` row (`FOR UPDATE`) and writes either the success row or the failed row before committing. The presigned URL is signed before the transaction, so a signing error leaves no row.
+> - `expiresAt` in the response is computed from `STORAGE_DOWNLOAD_URL_TTL` (same `5m` default as `StorageService`).
+> - On SQLite the concurrency test passes because knex runs sibling nested transactions (savepoints under the global test transaction) one after another, not because of the row lock. Only Postgres exercises `FOR UPDATE`.
+> - `downloaded_at` has one-second resolution on SQLite, so tests compare download rows without ordering.
+> - `show.tsx` has its own copy of the small `xsrfToken` helper from `new.tsx`, because moving it into `inertia/lib` would mean editing files outside this phase's list.
 
 ### Goal
 Recipients (and the creator) can download a file: the server checks access, expiry, password and download limit, records the attempt in `transfer_download`, and returns a short-lived presigned GET URL.
@@ -422,10 +451,10 @@ Rule: **all download paths require an authenticated user who is the creator or l
 4. Tests (with `drive.fake()`): each row of the table; creator can download without being a recipient; `max_downloads=1` → second call 410; concurrency test firing two requests with `max_downloads=1` yields exactly one 200; `ip_address` and `user_agent` recorded.
 
 ### Done when
-- [ ] `node ace test functional --files=tests/functional/transfers/download.spec.ts` passes (all cases)
-- [ ] `pnpm test`, `pnpm lint`, `pnpm typecheck` pass
+- [x] `node ace test functional --files=tests/functional/transfers/download.spec.ts` passes (all cases)
+- [x] `pnpm test`, `pnpm lint`, `pnpm typecheck` pass
 - [ ] Manual: as a recipient, clicking a file downloads it with the original filename; a password-protected transfer prompts and rejects a wrong password with a toast
-- [ ] No changes outside the files listed above
+- [x] No changes outside the files listed above (plus generated `.adonisjs/**`)
 
 ---
 
@@ -433,8 +462,16 @@ Rule: **all download paths require an authenticated user who is the creator or l
 
 ## Phase 7 — Transfer list and dashboard
 
-**Status:** ☐ Not started
+**Status:** 🟡 Implemented — manual check pending
 **Depends on:** Phase 5
+
+> **Implementation notes (2026-10-19):**
+> - Extra files: `app/services/transfer_list_service.ts` holds the Sent/Received queries shared by `TransfersController.index` and `DashboardController` (business logic in services), and `inertia/components/transfer_list.tsx` renders rows for both pages.
+> - Each list is one query: `file_count` / `total_bytes` are correlated subqueries over non-deleted `transfer_file` rows and the successful-download count is `withCount`; `creator` is a preload. Received reuses the model's `active` + `confirmed` scopes plus `whereHas('recipients', …)`, so `TransferPolicy` is unchanged.
+> - The list shape is the `toListItem` variant of `TransferTransformer` (`Data.Transfer.Variants['toListItem']` on the frontend). `isConfirmed` there is `fileCount > 0`.
+> - Pagination is passed as a plain `pagination` prop (`currentPage`, `lastPage`, `perPage`, `total`). An unknown `tab` falls back to `sent`; a bad `page` to 1.
+> - Tabs switch with an Inertia visit (`?tab=`), so only the active tab's rows are loaded.
+> - `NavLink` matches nested paths, so on `/transfers/new` both "Transfers" and "New transfer" show as active. Left as is (`nav_link.tsx` is outside this phase).
 
 ### Goal
 `GET /transfers` shows two tabs — "Sent" (created by me) and "Received" (I'm a recipient) — and the dashboard shows recent items from both instead of the placeholder.
@@ -464,17 +501,25 @@ There is no status flag; "confirmed" = has ≥ 1 `transfer_file` row (Phase 5's 
 4. Tests: sent tab shows mine incl. unconfirmed (flagged `isConfirmed: false`), excludes deleted; received shows confirmed non-deleted ones where I'm recipient (expired included, flagged `isExpired`) and never unconfirmed ones; stranger's transfers never appear; pagination returns 20 + meta.
 
 ### Done when
-- [ ] `node ace test functional --files=tests/functional/transfers/index.spec.ts` passes
-- [ ] `pnpm test`, `pnpm lint`, `pnpm typecheck` pass
+- [x] `node ace test functional --files=tests/functional/transfers/index.spec.ts` passes
+- [x] `pnpm test`, `pnpm lint`, `pnpm typecheck` pass
 - [ ] Manual: dashboard shows the transfer created in Phase 4 under "Sent"; signing in as the recipient shows it under "Received"
-- [ ] No changes outside the files listed above
+- [x] No changes outside the files listed above (plus generated `.adonisjs/**`) — except the two extra files in the notes
 
 ---
 
 ## Phase 8 — Roles mirror and soft delete
 
-**Status:** ☐ Not started
+**Status:** 🟡 Implemented — manual check pending
 **Depends on:** Phase 5, Phase 7
+
+> **Implementation notes (2026-10-19):**
+> - Migration applied to the dev database (`postgres_direct`), which regenerated `database/schema.ts`.
+> - Extra file: `app/services/transfer_list_service.ts` gains the `all` tab query (active + confirmed, any creator), since the Sent/Received queries already live there (Phase 7). The controller only allows `tab=all` for admins; anyone else falls back to `sent`.
+> - `parseRole(claim)` is exported from `iam_client.ts` so the claim rule is unit-testable without signing a token. An empty string is treated like a missing claim (`employee`).
+> - `TransferPolicy` gains a `deletable(user)` query builder alongside `viewable` / `downloadable`; `canDelete` is built on it. `DownloadService` needed no change: admins now pass `viewable` and fail `canDownload`, which already returns 403 `forbidden`.
+> - `DELETE /transfers/:id` answers **204** to plain clients and, for Inertia requests (`X-Inertia` header), redirects to `transfers.index` with the flash `success: "Transfer deleted"`.
+> - The pages get booleans instead of the role: `transfers/show` receives `canDelete`, `transfers/index` receives `canSeeAll`. `UserTransformer` is unchanged, so roles of other users aren't sent to the browser.
 
 ### Goal
 Users' IAM role is mirrored locally; creators and admin/superadmin can soft-delete a transfer, and admins can view any confirmed transfer (but still cannot download it unless they are creator/recipient).
@@ -512,18 +557,29 @@ Soft delete uses `Transfer#softDelete()` from the `withSoftDeletes` mixin; files
 4. Tests: creator deletes → 204 and `deleted_at` set; creator deletes an unconfirmed transfer → 204; admin deletes someone else's confirmed transfer → 204; admin gets 404 on someone else's unconfirmed transfer; recipient → 403; stranger → 404; deleted transfer disappears from lists and returns 404 on show/download; admin can view any transfer; admin who is not a recipient → download 403 `forbidden`; user with a custom role name is not admin; unit tests for claim parsing and that `authorizeUrl` includes `roles` in `scope`.
 
 ### Done when
-- [ ] `node ace test functional --files=tests/functional/transfers/destroy.spec.ts` passes
-- [ ] `node ace test unit` passes (incl. new admin and claim cases)
-- [ ] `pnpm test`, `pnpm lint`, `pnpm typecheck` pass
+- [x] `node ace test functional --files=tests/functional/transfers/destroy.spec.ts` passes
+- [x] `node ace test unit` passes (incl. new admin and claim cases)
+- [x] `pnpm test`, `pnpm lint`, `pnpm typecheck` pass
 - [ ] Manual: signing in through IAM with an admin account stores `role='admin'` in `user` (IAM shows its consent card once more because `roles` is a new scope — expected)
-- [ ] No changes outside the files listed above
+- [x] No changes outside the files listed above (plus generated `.adonisjs/**`) — except `transfer_list_service.ts` (see notes)
 
 ---
 
 ## Phase 9 — Periodic IAM access re-check
 
-**Status:** ☐ Not started
+**Status:** 🟡 Implemented — manual checks pending
 **Depends on:** Phase 8
+
+> **Implementation notes (2026-10-19):**
+> - Migration applied to the dev database (`postgres_direct`), which regenerated `database/schema.ts`.
+> - `FOR UPDATE SKIP LOCKED` is added only on Postgres: knex throws on `skipLocked()` for SQLite. After taking the lock the middleware re-reads `checked_at`, so a request that waited behind another one's refresh doesn't refresh again. On SQLite the concurrency test passes because nested transactions run one after another (same as Phase 6).
+> - `IamGrantRevoked` extends `IamError`. Network errors in `refresh` are wrapped in `IamError` (→ `iam_unreachable`). Token-endpoint client auth moved into a shared `clientPost` helper, used by `exchangeCode`, `refresh` and `revoke`.
+> - The re-check also signs out when the session's grant row is missing or belongs to another user, when the new ID token's `sub` differs, or when the stored token can't be decrypted. If the refresh succeeded but the new ID token is rejected (invalid or no `share`), the rotated token is revoked at IAM (best-effort) before the row is deleted.
+> - Inertia requests get `inertia.location('/login')` (409 + `X-Inertia-Location`); JSON requests (`Accept: application/json`) get 401 `session_expired`; everything else a 302 to `/login`. The flash is set in all three cases.
+> - The callback deletes any `iam_grant` row left in the session from an earlier sign-in before creating the new one. Rows of sessions that simply expire are never removed; a cleanup job could prune rows with old `checked_at` (Phase 10 candidate).
+> - `IamGrant` has `selfAssignPrimaryKey` and overrides `refreshTokenEncrypted` with `serializeAs: null`. Encryption purpose: `iam-refresh-token`.
+> - `signIn(request, user)` returns the awaited response (it awaits the request), so it wraps the whole request: `await signIn(client.get('/x').withInertia(), user)`.
+> - The logout tests send Inertia requests: `inertia.location` answers 409 for every request, as it did before this phase.
 
 ### Goal
 A signed-in user's Share access and role are re-validated against IAM every `IAM_RECHECK_SECONDS` (default 300), so revoking the Share entitlement, banning/deleting the user, or changing their role in IAM takes effect within ~5 minutes. Failures sign the user out (fail closed).
@@ -587,13 +643,13 @@ Because of rotation + replay detection, two concurrent requests from one session
    - logout calls `IamClient.revoke` with the stored token and deletes the row; a failing revoke still logs the user out.
 
 ### Done when
-- [ ] `node ace test functional --files=tests/functional/iam_recheck.spec.ts` passes (all cases in step 5)
-- [ ] `node ace test unit --files=tests/unit/iam_client.spec.ts` passes
-- [ ] `pnpm test`, `pnpm lint`, `pnpm typecheck` pass
-- [ ] All earlier functional suites still pass using the `signIn` helper
+- [x] `node ace test functional --files=tests/functional/iam_recheck.spec.ts` passes (all cases in step 5)
+- [x] `node ace test unit --files=tests/unit/iam_client.spec.ts` passes
+- [x] `pnpm test`, `pnpm lint`, `pnpm typecheck` pass
+- [x] All earlier functional suites still pass using the `signIn` helper
 - [ ] Manual (with local IAM): sign in to Share (consent card lists "Sign you in automatically"), disable the Share entitlement in IAM's directory, wait `IAM_RECHECK_SECONDS` (set to 30 for the test), reload → signed out with the flash message
 - [ ] Manual: after logging out of Share, IAM's `oauth_grant` row for that session has `revoked_reason = 'client_revoked'`
-- [ ] No changes outside the files listed above
+- [x] No changes outside the files listed above (plus generated `.adonisjs/**`)
 
 ---
 
@@ -601,8 +657,16 @@ Because of rotation + replay detection, two concurrent requests from one session
 
 ## Phase 10 — Queue and transfer cleanup
 
-**Status:** ☐ Not started
+**Status:** ✅ Done
 **Depends on:** Phase 2, Phase 3
+
+> **Implementation notes (2026-10-19):**
+> - Queue package: `@adonisjs/queue` 0.7.0 (peer `@adonisjs/core` ^7.6.0; installed core is 7.6.0), driver `database` (Postgres via Lucid, tables `queue_jobs` / `queue_schedules`), `sync` in tests (`QUEUE_DRIVER`, required in `start/env.ts` — add `QUEUE_DRIVER=database` to your local `.env`).
+> - Extra file: `database/migrations/1762100008000_create_queue_tables.ts` — the `database` driver needs its tables (package's own migration stub). Applied to the dev DB (`postgres_direct`), which regenerated `database/schema.ts`.
+> - `start/scheduler.ts` is preloaded in the `web` environment only (package default): the web server stores the `cleanup-transfers` schedule (`every('15m')`) in `queue_schedules` at boot, and the worker (`pnpm worker` = `node ace queue:work`) runs it. Redefining at boot keeps the next run. `node ace queue:scheduler:list` shows it.
+> - `CleanupService` locks each batch with `FOR UPDATE SKIP LOCKED` on Postgres only (same as Phase 9). Timestamps in SQL are formatted with the dialect's `dateTimeFormat`, like Lucid writes them, so comparisons work on SQLite too. File deletes and prefix purges page with an id cursor, so a failing object is retried by the next run, not in a loop by this one. Failures are logged at `warn`.
+> - Rule 4 repeats prefix purges for deleted unconfirmed transfers on every run for 7 days (as specified), so `prefixesPurged` stays > 0 on repeat runs while such transfers exist. The "running twice" test therefore uses confirmed transfers; the purge itself is idempotent.
+> - Job: `maxRetries: 2`, `timeout: '10m'`; logs the counts at `info` ("cleanup: transfers cleaned up").
 
 ### Goal
 Expired transfers, abandoned (unconfirmed) uploads, and soft-deleted transfers' bytes are cleaned up automatically and idempotently by a scheduled job.
@@ -649,8 +713,16 @@ Cleanup rules (in batches of 100):
 
 ## Phase 11 — Email notification on upload confirmation
 
-**Status:** ☐ Not started
+**Status:** ✅ Done
 **Depends on:** Phase 10
+
+> **Implementation notes (2026-10-19):**
+> - Mail package: `@adonisjs/mail` 10.4.0 (9.x imports `cuid` from `@adonisjs/core/helpers`, which core 7.6 no longer exports). SMTP transport only; env: `MAIL_ENABLED`, `MAIL_FROM_ADDRESS`, `MAIL_FROM_NAME`, `SMTP_HOST`, `SMTP_PORT`, `SMTP_SECURE`, `SMTP_USERNAME`, `SMTP_PASSWORD` (all optional; auth is used only when `SMTP_USERNAME` is set).
+> - `MAIL_ENABLED` is checked in `TransferService.complete` before dispatch, so nothing is queued when it's off. A failed dispatch is logged and swallowed: the upload is already confirmed and a retried `complete` would not dispatch again.
+> - `NotifyRecipientsJob` (`maxRetries: 2`) skips deleted transfers and sends one mail per recipient in sequence. A retry after a partial failure resends to everyone (a possible duplicate rather than a lost notice).
+> - The mail has an HTML view (`emails/transfer_received`) plus an inline plain-text part. Link = `new URL('/transfers/<id>', APP_URL)`.
+> - `.env.test` sets `MAIL_ENABLED=false` so other suites never try SMTP; `notify.spec.ts` switches it on with `env.set` around `mail.fake()`.
+> - Done-when lint/typecheck: Phase 11 files are clean. The remaining `pnpm lint`/`pnpm typecheck` errors at the time of writing were in Phase 12 work in progress (`app/services/download_service.ts`, `tests/functional/transfers/rate_limit.spec.ts`).
 
 ### Goal
 When the creator's upload is first confirmed, each recipient optionally gets an email with the title, sender, expiry and a link to the detail page (never a direct file link).
@@ -677,9 +749,9 @@ Hook point: `TransferService.complete` (Phase 3) returns `firstConfirmation: tru
 4. Tests: completing a transfer with 2 recipients queues/sends 2 mails with correct link; a 409 `complete` sends none; completing twice sends exactly 2 mails total (not 4); `MAIL_ENABLED=false` sends none.
 
 ### Done when
-- [ ] `node ace test functional --files=tests/functional/transfers/notify.spec.ts` passes
-- [ ] `pnpm test`, `pnpm lint`, `pnpm typecheck` pass
-- [ ] No changes outside the files listed above
+- [x] `node ace test functional --files=tests/functional/transfers/notify.spec.ts` passes
+- [ ] `pnpm test`, `pnpm lint`, `pnpm typecheck` pass (`pnpm test` passes, 128/128; lint/typecheck fail only in Phase 12 files, see notes)
+- [x] No changes outside the files listed above (plus generated `.adonisjs/**` and `pnpm-lock.yaml`)
 
 ---
 
@@ -687,8 +759,16 @@ Hook point: `TransferService.complete` (Phase 3) returns `firstConfirmation: tru
 
 ## Phase 12 — Observability and hardening
 
-**Status:** ☐ Not started
+**Status:** 🟡 Implemented — dev DB migration pending
 **Depends on:** Phase 6, Phase 10
+
+> **Implementation notes (2026-10-19):**
+> - `@adonisjs/limiter` 3.0.1 (peer `@adonisjs/core` ^7). Store from the required `LIMITER_STORE` env var: `database` (table `rate_limits`, shared by replicas) or `memory` (tests). **Add `LIMITER_STORE=database` to your local `.env`** and run migrations, or the app won't boot / throttled routes fail.
+> - Extra files: `adonisrc.ts` (limiter provider), `start/env.ts`, `.env.example`, `.env.test` (`LIMITER_STORE`), `database/migrations/1762100009000_create_rate_limits_table.ts` (the package's stub; the database store needs it). Not yet applied to the dev DB, so `database/schema.ts` isn't regenerated.
+> - The package's 429 body is `{ errors: [...] }`; `start/limiter.ts` wraps the route throttles to answer `{ "error": "rate_limited" }` with `Retry-After` and logs a `rate_limited` event. Throttles are keyed by user id and run after `auth` (route middleware runs after the group's). They count every request, including 404/422 ones.
+> - Wrong passwords: `DownloadService` consumes `passwordAttempts()` (key `<userId>:<transferId>`) only on a wrong/missing password. Once 5 are used, the password check answers 429 `rate_limited` — even for the right password — until the 15-minute window ends; that attempt is still recorded in `transfer_download` with `success = false`. Extra files: `app/controllers/transfers_controller.ts` maps `rate_limited` → 429, `inertia/pages/transfers/show.tsx` gets a toast message for it.
+> - Log events use `logger.info({ event: '<name>', ...ids }, '<name>')`. `transfer.upload_confirmed` is logged only for the first confirmation and carries `storedBytes` (storage-usage metric). `iam.recheck` failures map `no_grant` / `grant_revoked` / `invalid_id_token` → `revoked`, `no_entitlement` → `not_entitled`, with the detail in `reason`; `ok` is logged only when a refresh actually happened. `cleanup.run` moved into `CleanupService`, so `app/jobs/cleanup_transfers_job.ts` no longer logs the counts itself.
+> - Security headers review: no config change. CSP is still disabled (needs nonces for Vite/Inertia and the bucket in `connect-src`, so it needs browser verification) and `http.trustProxy` must be set behind a load balancer; both are documented in `docs/operations.md`.
 
 ### Goal
 Key flows emit structured logs and counters, abuse is rate-limited, and operational requirements (bucket CORS/lifecycle) are documented.
@@ -714,10 +794,10 @@ Spec: structured logs, traces on transfer creation and download resolution, metr
 4. Tests: 6th wrong password within window → 429; log events emitted (spy on logger) for granted/denied downloads.
 
 ### Done when
-- [ ] `node ace test functional --files=tests/functional/transfers/rate_limit.spec.ts` passes
-- [ ] `pnpm test`, `pnpm lint`, `pnpm typecheck` pass
-- [ ] `grep -ri "password" ` over new log calls finds no password values logged
-- [ ] No changes outside the files listed above
+- [x] `node ace test functional --files=tests/functional/transfers/rate_limit.spec.ts` passes
+- [x] `pnpm test`, `pnpm lint`, `pnpm typecheck` pass
+- [x] `grep -ri "password" ` over new log calls finds no password values logged (the logger-spy test also asserts no password or presigned URL appears in logged objects)
+- [x] No changes outside the files listed above — except the extra files in the notes
 
 ---
 
