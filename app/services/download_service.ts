@@ -5,6 +5,7 @@ import hash from '@adonisjs/core/services/hash'
 import logger from '@adonisjs/core/services/logger'
 import db from '@adonisjs/lucid/services/db'
 import type { TransactionClientContract } from '@adonisjs/lucid/types/database'
+import NotifyDownloadJob from '#jobs/notify_download_job'
 import TransferFile from '#models/transfer_file'
 import type User from '#models/user'
 import TransferPolicy from '#policies/transfer_policy'
@@ -29,6 +30,11 @@ export type DownloadError =
 export type DownloadResult =
   { ok: true; url: string; expiresAt: string } | { ok: false; error: DownloadError }
 
+/** `firstForUser`: this is the user's first successful download of the transfer. */
+type CheckResult =
+  | { ok: true; url: string; expiresAt: string; firstForUser: boolean }
+  | { ok: false; error: DownloadError }
+
 /**
  * Authorizing a file download and handing out a presigned GET. Every attempt
  * that reaches the expiry/password/limit checks is logged in
@@ -45,11 +51,32 @@ export default class DownloadService {
   ): Promise<DownloadResult> {
     const result = await this.check(user, transferId, fileId, password, info)
     const event = { transferId, fileId, userId: user.id }
-    if (result.ok) logger.info({ event: 'download.granted', ...event }, 'download.granted')
-    else {
+    if (!result.ok) {
       logger.info({ event: 'download.denied', reason: result.error, ...event }, 'download.denied')
+      return result
     }
-    return result
+    logger.info({ event: 'download.granted', ...event }, 'download.granted')
+    if (result.firstForUser) await this.sendReceipt(user, transferId, fileId)
+    return { ok: true, url: result.url, expiresAt: result.expiresAt }
+  }
+
+  /**
+   * Queue the creator's download receipt, unless `MAIL_ENABLED` is off. Runs
+   * after the transaction committed. A failed dispatch is logged, not thrown:
+   * the download itself already succeeded.
+   */
+  private static async sendReceipt(user: User, transferId: string, fileId: string) {
+    if (!env.get('MAIL_ENABLED', false)) return
+    try {
+      await NotifyDownloadJob.dispatch({
+        transferId,
+        fileId,
+        userId: user.id,
+        downloadedAt: DateTime.now().toISO()!,
+      })
+    } catch (error) {
+      logger.error({ err: error, transferId }, 'notify: receipt dispatch failed')
+    }
   }
 
   /**
@@ -65,7 +92,7 @@ export default class DownloadService {
     fileId: string,
     password: string | null,
     info: DownloadRequestInfo
-  ): Promise<DownloadResult> {
+  ): Promise<CheckResult> {
     const transfer = await TransferPolicy.viewable(user).where('transfer.id', transferId).first()
     if (!transfer) return { ok: false, error: 'not_found' }
     if (!(await TransferPolicy.canDownload(user, transfer)))
@@ -117,8 +144,16 @@ export default class DownloadService {
         }
       }
 
+      // Read under the row lock, so concurrent first downloads can't both see none.
+      const earlier = await trx
+        .from('transfer_download')
+        .where('transfer_id', transferId)
+        .where('user_id', user.id)
+        .where('success', true)
+        .first()
+
       await this.record(trx, row, true)
-      return { ok: true, url, expiresAt: expiresAt.toISO()! } as const
+      return { ok: true, url, expiresAt: expiresAt.toISO()!, firstForUser: !earlier } as const
     })
   }
 
