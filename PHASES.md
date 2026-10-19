@@ -109,7 +109,7 @@ The token lives only in the creator's browser. If it's lost mid-upload, the crea
 | # | Phase | Depends on | Status |
 |---|-------|-----------|--------|
 | 1 | Set up HTTP test harness and test database | — | ✅ |
-| 2 | Add object storage (Drive + presigned URLs) | 1 | ☐ |
+| 2 | Add object storage (Drive + presigned URLs) | 1 | ✅ |
 | 3 | Create & complete transfer API | 1, 2 | ☐ |
 | 4 | Create-transfer page with recipient picker and uploads | 3 | ☐ |
 | 5 | Transfer access policy and detail page | 3 | ☐ |
@@ -175,8 +175,16 @@ Japa is configured (`tests/bootstrap.ts`) with only the browser client; there ar
 
 ## Phase 2 — Add object storage (Drive + presigned URLs)
 
-**Status:** ☐ Not started
+**Status:** ✅ Done
 **Depends on:** Phase 1
+
+> **Implementation notes (2026-10-19):**
+> - `@adonisjs/drive` 4.0.0 + `@aws-sdk/client-s3` / `@aws-sdk/s3-request-presigner`. `node ace configure` only prompts (it can't run non-interactively), so the provider, config and env were added by hand following the package's stub.
+> - flydrive's `fs` driver and `drive.fake()` can't sign uploads. `config/drive.ts` therefore defines the `fs` disk as an `FSDriver` factory (`tmp/drive`), and the fakes get a URL builder that returns stand-in `/drive/local/<get|put>/<key>?<signed options>` URLs, so tests can inspect what was signed (e.g. `contentDisposition`). Those URLs aren't served; `storage:probe` only works against `r2`.
+> - `presignUpload` also signs `ContentLength` (the declared size). Verified on R2: a PUT with a different body length is rejected with 403. `complete` (Phase 3) still checks the size.
+> - `R2_*` are optional in `start/env.ts`, so the app boots without a bucket and the first storage call fails instead.
+> - StorageService methods are static (matching `IamClient`): `StorageService.presignUpload(...)`.
+> - Single-PUT cap: R2's documented 5 GiB − 5 MiB (`5363466240`). The probe confirmed the round trip on bucket `covetdrop-transfers`; the cap itself was not measured with a ~5 GiB upload.
 
 ### Goal
 A `StorageService` that issues presigned PUT/GET URLs against R2 (or GCS) via Adonis Drive, proven with a real round trip. Done early because it's the riskiest external dependency.
@@ -207,11 +215,11 @@ See *Shared contracts → StorageService* and *Object keys* in the Overview. Spe
 6. Unit tests (fs disk / `drive.fake()`): key → URL is a string; `delete` on a missing key doesn't throw; `stat` returns the size for a written object and `null` for a missing one; `deletePrefix('transfers/x/')` removes both objects under it and leaves `transfers/y/…`; `presignDownload` encodes a filename with spaces and `ü`.
 
 ### Done when
-- [ ] `node ace test unit --files=tests/unit/storage_service.spec.ts` passes
-- [ ] `node ace storage:probe` prints `OK` against a real bucket (manual; paste output in the commit message)
-- [ ] `pnpm lint`, `pnpm typecheck`, `pnpm test` pass
-- [ ] App still boots with `pnpm dev` using `.env.example` values
-- [ ] No changes outside the files listed above
+- [x] `node ace test unit --files=tests/unit/storage_service.spec.ts` passes
+- [x] `node ace storage:probe` prints `OK` against a real bucket (manual; paste output in the commit message)
+- [x] `pnpm lint`, `pnpm typecheck`, `pnpm test` pass
+- [x] App still boots with `pnpm dev` using `.env.example` values (IAM placeholders filled; R2 left empty)
+- [x] No changes outside the files listed above (plus generated `.adonisjs/client/manifest.d.ts`)
 
 ---
 

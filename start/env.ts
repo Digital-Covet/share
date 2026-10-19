@@ -42,4 +42,18 @@ export default await Env.create(new URL('../', import.meta.url), {
   IAM_CLIENT_SECRET: Env.schema.string.optional(),
   IAM_REDIRECT_URI: Env.schema.string({ format: 'url', tld: false }),
   IAM_POST_LOGOUT_REDIRECT_URI: Env.schema.string.optional({ format: 'url', tld: false }),
+
+  // Object storage (Adonis Drive). `r2` in every real environment; `fs` is
+  // a local disk for tests. R2_* are optional so the app boots without a
+  // bucket; the first storage call fails instead.
+  DRIVE_DISK: Env.schema.enum(['r2', 'fs'] as const),
+  R2_ENDPOINT: Env.schema.string.optional({ format: 'url', tld: false }),
+  R2_BUCKET: Env.schema.string.optional(),
+  R2_ACCESS_KEY_ID: Env.schema.string.optional(),
+  R2_SECRET_ACCESS_KEY: Env.schema.secret.optional(),
+  // Presigned URL lifetimes, e.g. `1h`, `5m` (defaults 1h / 5m).
+  STORAGE_UPLOAD_URL_TTL: Env.schema.string.optional(),
+  STORAGE_DOWNLOAD_URL_TTL: Env.schema.string.optional(),
+  // Largest file accepted for a single presigned PUT.
+  STORAGE_MAX_SINGLE_PUT_BYTES: Env.schema.number.optional(),
 })
