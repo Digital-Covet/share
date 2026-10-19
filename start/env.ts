@@ -67,11 +67,16 @@ export default await Env.create(new URL('../', import.meta.url), {
   // `rate_limits` table, shared by all replicas; `memory` is for tests.
   LIMITER_STORE: Env.schema.enum(['database', 'memory'] as const),
 
-  // Mail (@adonisjs/mail, SMTP). Optional: nothing is sent unless
-  // MAIL_ENABLED=true, so the SMTP settings may be left unset.
+  // Mail (@adonisjs/mail). Optional: nothing is sent unless MAIL_ENABLED=true,
+  // so the mailer settings may be left unset. MAIL_MAILER picks ZeptoMail
+  // (HTTP API) or SMTP; the from address must be on a domain verified in the
+  // ZeptoMail Mail Agent.
   MAIL_ENABLED: Env.schema.boolean.optional(),
+  MAIL_MAILER: Env.schema.enum.optional(['smtp', 'zeptomail'] as const),
   MAIL_FROM_ADDRESS: Env.schema.string.optional({ format: 'email' }),
   MAIL_FROM_NAME: Env.schema.string.optional(),
+  ZEPTOMAIL_URL: Env.schema.string.optional({ format: 'url', tld: false }),
+  ZEPTOMAIL_TOKEN: Env.schema.secret.optional(),
   SMTP_HOST: Env.schema.string.optional({ format: 'host' }),
   SMTP_PORT: Env.schema.number.optional(),
   SMTP_SECURE: Env.schema.boolean.optional(),
