@@ -17,6 +17,25 @@ const afterCreate = (conn: any, done: (err: Error | null, conn: any) => void) =>
   conn.query(`SET timezone='UTC';`, (err: Error) => done(err, conn))
 }
 
+/**
+ * pg currently treats `sslmode=prefer|require|verify-ca` (Neon URLs ship
+ * with `require`) as `verify-full`, logs a deprecation warning on every
+ * connect, and will weaken them to libpq semantics in pg v9. Spell out
+ * `verify-full` to keep full certificate verification and silence it.
+ */
+const withVerifiedSsl = (connectionString: string) => {
+  try {
+    const url = new URL(connectionString)
+    const mode = url.searchParams.get('sslmode')
+    if (mode && ['prefer', 'require', 'verify-ca'].includes(mode)) {
+      url.searchParams.set('sslmode', 'verify-full')
+    }
+    return url.toString()
+  } catch {
+    return connectionString
+  }
+}
+
 const dbConfig = defineConfig({
   /**
    * Default connection used for all queries.
@@ -33,7 +52,7 @@ const dbConfig = defineConfig({
     postgres: {
       client: 'pg',
       connection: {
-        connectionString: env.get('DATABASE_URL'),
+        connectionString: withVerifiedSsl(env.get('DATABASE_URL')),
       },
       pool: {
         min: 0,
@@ -59,7 +78,7 @@ const dbConfig = defineConfig({
     postgres_direct: {
       client: 'pg',
       connection: {
-        connectionString: env.get('DATABASE_URL_UNPOOLED'),
+        connectionString: withVerifiedSsl(env.get('DATABASE_URL_UNPOOLED')),
       },
       pool: {
         min: 0,
