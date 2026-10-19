@@ -6,12 +6,6 @@ import type { ApiDefinition } from './tree.d.ts'
 const placeholder: any = {}
 
 const routes = {
-  'home': {
-    methods: ["GET","HEAD"],
-    pattern: '/',
-    tokens: [[0,"/"]],
-    types: placeholder as Registry['home']['types'],
-  },
   'session.create': {
     methods: ["GET","HEAD"],
     pattern: '/login',

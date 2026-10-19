@@ -4,7 +4,6 @@ type ParamValue = string | number | bigint | boolean
 
 export type ScannedRoutes = {
   ALL: {
-    'home': { paramsTuple?: []; params?: {} }
     'session.create': { paramsTuple?: []; params?: {} }
     'iam.redirect': { paramsTuple?: []; params?: {} }
     'iam.callback': { paramsTuple?: []; params?: {} }
@@ -20,7 +19,6 @@ export type ScannedRoutes = {
     'transfers.download': { paramsTuple: [ParamValue,ParamValue]; params: {'id': ParamValue,'fileId': ParamValue} }
   }
   GET: {
-    'home': { paramsTuple?: []; params?: {} }
     'session.create': { paramsTuple?: []; params?: {} }
     'iam.redirect': { paramsTuple?: []; params?: {} }
     'iam.callback': { paramsTuple?: []; params?: {} }
@@ -31,7 +29,6 @@ export type ScannedRoutes = {
     'transfers.show': { paramsTuple: [ParamValue]; params: {'id': ParamValue} }
   }
   HEAD: {
-    'home': { paramsTuple?: []; params?: {} }
     'session.create': { paramsTuple?: []; params?: {} }
     'iam.redirect': { paramsTuple?: []; params?: {} }
     'iam.callback': { paramsTuple?: []; params?: {} }

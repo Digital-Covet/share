@@ -6,13 +6,6 @@ import { signIn } from '#tests/helpers/sign_in'
 test.group('Smoke', (group) => {
   group.each.setup(() => testUtils.db().withGlobalTransaction())
 
-  test('home page renders', async ({ client }) => {
-    const response = await client.get('/').withInertia()
-
-    response.assertStatus(200)
-    response.assertInertiaComponent('home')
-  })
-
   test('dashboard redirects guests to /login', async ({ client }) => {
     const response = await client.get('/dashboard').redirects(0)
 

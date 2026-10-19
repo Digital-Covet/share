@@ -4,7 +4,7 @@ import { Link } from '@adonisjs/inertia/react'
 export default function Logo({ size = 26 }: { size?: number }) {
   return (
     <Link
-      route="home"
+      route="dashboard"
       aria-label="CovetDrop"
       className="inline-flex items-center gap-2 text-ink no-underline"
     >
