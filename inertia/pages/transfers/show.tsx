@@ -1,7 +1,7 @@
 import { useState, type FormEvent, type ReactNode } from 'react'
 import { type Data } from '@generated/data'
 import { Dialog } from '@base-ui/react/dialog'
-import { toast } from 'sonner'
+import { toast } from '~/components/ui/toaster'
 import { Form } from '@adonisjs/inertia/react'
 import { CircleAlert, Download, File as FileIcon, LoaderCircle, Trash2 } from 'lucide-react'
 import Page from '~/components/page'

@@ -1,7 +1,6 @@
 import { useEffect } from 'react'
-import { toast, Toaster } from 'sonner'
 import { router, usePage } from '@inertiajs/react'
-import { CircleAlert, CircleCheck } from 'lucide-react'
+import { toast, Toaster } from '~/components/ui/toaster'
 
 export default function FlashToasts() {
   const { flash } = usePage()
@@ -15,14 +14,5 @@ export default function FlashToasts() {
     if (flash.success) toast.success(flash.success, { id: 'flash' })
   }, [flash])
 
-  return (
-    <Toaster
-      position="top-center"
-      toastOptions={{ unstyled: true }}
-      icons={{
-        success: <CircleCheck size={18} strokeWidth={1.8} />,
-        error: <CircleAlert size={18} strokeWidth={1.8} />,
-      }}
-    />
-  )
+  return <Toaster />
 }

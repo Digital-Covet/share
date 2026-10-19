@@ -1,1 +1,686 @@
-@import "tailwindcss";
+@import 'tailwindcss';
+
+/* `dark:` follows the ThemeToggle (data-theme on <html>), not the OS. */
+@custom-variant dark (&:where([data-theme=dark], [data-theme=dark] *));
+
+/* ------------------------------------------------------------------------
+ * Tokens: "Courier Slip". Stone paper and ink, one amber accent.
+ * ---------------------------------------------------------------------- */
+:root {
+  --canvas: #f5f5f4;
+  --surface: #ffffff;
+  --paper: #fbf8f1;
+  --ink: #1c1917;
+  --muted: #57534e;
+  --faint: #6f6964;
+  --line: #e7e5e4;
+  --line-strong: #d6d3d1;
+  --accent: #b45309;
+  --danger: #b91c1c;
+  --ok: #15803d;
+  --on-ink: #ffffff;
+  --primary: #1c1917;
+  --primary-hover: #292524;
+  --hover: #ecebe9;
+  --dur-fast: 120ms;
+  --dur-settle: 220ms;
+  color-scheme: light;
+}
+
+[data-theme='dark'] {
+  --canvas: #0c0a09;
+  --surface: #1c1917;
+  --paper: #231f1b;
+  --ink: #f5f5f4;
+  --muted: #a8a29e;
+  --faint: #948d86;
+  --line: #292524;
+  --line-strong: #44403c;
+  --accent: #f59e0b;
+  --danger: #f87171;
+  --ok: #4ade80;
+  --on-ink: #1c1917;
+  --primary: #f5f5f4;
+  --primary-hover: #e7e5e4;
+  --hover: #292524;
+  color-scheme: dark;
+}
+
+@theme inline {
+  --color-canvas: var(--canvas);
+  --color-surface: var(--surface);
+  --color-paper: var(--paper);
+  --color-ink: var(--ink);
+  --color-muted: var(--muted);
+  --color-faint: var(--faint);
+  --color-line: var(--line);
+  --color-line-strong: var(--line-strong);
+  --color-accent: var(--accent);
+  --color-danger: var(--danger);
+  --color-ok: var(--ok);
+  --font-sans: 'Instrument Sans', ui-sans-serif, system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, SFMono-Regular, monospace;
+  --radius-card: 6px;
+  --shadow-label: 0 1px 0 rgb(28 25 23 / 0.04), 0 12px 32px -12px rgb(28 25 23 / 0.18);
+}
+
+/* ------------------------------------------------------------------------
+ * Base
+ * ---------------------------------------------------------------------- */
+@layer base {
+  html {
+    background: var(--canvas);
+  }
+
+  body {
+    position: relative;
+    min-height: 100dvh;
+    background: var(--canvas);
+    color: var(--ink);
+    font-family: var(--font-sans);
+    font-size: 14px;
+    line-height: 20px;
+    -webkit-font-smoothing: antialiased;
+  }
+
+  /* Portaled Base UI popups (tooltips, toasts) stack above page content. */
+  #app {
+    isolation: isolate;
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--accent);
+    outline-offset: 2px;
+  }
+}
+
+/* ------------------------------------------------------------------------
+ * Shared components. `buttonClass()` in components/ui/button.tsx returns
+ * these class names, so BEM markup and the Base UI Button look identical.
+ * ---------------------------------------------------------------------- */
+@layer components {
+  .btn {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    height: 40px;
+    padding: 0 16px;
+    border: 1px solid transparent;
+    border-radius: var(--radius-card);
+    font-size: 14px;
+    font-weight: 500;
+    line-height: 1;
+    white-space: nowrap;
+    cursor: pointer;
+    user-select: none;
+    text-decoration: none;
+    transition:
+      background-color var(--dur-fast) ease,
+      border-color var(--dur-fast) ease,
+      color var(--dur-fast) ease,
+      transform var(--dur-fast) ease;
+  }
+  .btn:active:not(:disabled, [data-disabled]) {
+    transform: translateY(1px);
+  }
+  .btn:disabled,
+  .btn[data-disabled] {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+  .btn__arrow {
+    transition: transform var(--dur-fast) ease;
+  }
+  .btn:hover .btn__arrow {
+    transform: translateX(2px);
+  }
+
+  .btn--primary {
+    background: var(--primary);
+    color: var(--on-ink);
+  }
+  .btn--primary:hover:not(:disabled, [data-disabled]) {
+    background: var(--primary-hover);
+  }
+
+  .btn--secondary {
+    background: var(--surface);
+    border-color: var(--line-strong);
+    color: var(--ink);
+  }
+  .btn--secondary:hover:not(:disabled, [data-disabled]) {
+    background: var(--hover);
+  }
+
+  .btn--sm {
+    height: 32px;
+    padding: 0 12px;
+    gap: 6px;
+    font-size: 13px;
+  }
+
+  .btn--block {
+    display: flex;
+    width: 100%;
+    height: 44px;
+  }
+
+  .iconbtn {
+    position: relative;
+    display: inline-grid;
+    place-items: center;
+    width: 32px;
+    height: 32px;
+    border: 1px solid var(--line);
+    border-radius: var(--radius-card);
+    background: var(--surface);
+    color: var(--muted);
+    cursor: pointer;
+    transition:
+      background-color var(--dur-fast) ease,
+      color var(--dur-fast) ease;
+  }
+  .iconbtn:hover {
+    background: var(--hover);
+    color: var(--ink);
+  }
+  .iconbtn > svg {
+    grid-area: 1 / 1;
+  }
+
+  /* Sun and moon share one cell and cross-fade on the Toggle's state. */
+  .themetoggle__icon {
+    opacity: 0;
+    transform: rotate(-30deg) scale(0.8);
+    transition:
+      opacity var(--dur-fast) ease,
+      transform var(--dur-settle) ease;
+  }
+  .themetoggle__icon--on {
+    opacity: 1;
+    transform: none;
+  }
+
+  .il {
+    color: var(--ink);
+    text-decoration: underline;
+    text-decoration-color: var(--line-strong);
+    text-underline-offset: 3px;
+  }
+  .il:hover {
+    text-decoration-color: var(--accent);
+  }
+
+  /* Headers */
+  .header__inner {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    max-width: 72rem;
+    margin: 0 auto;
+    padding: 0 16px;
+    height: 56px;
+  }
+  .header__right {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .header--bar {
+    background: var(--surface);
+    border-bottom: 1px solid var(--line);
+  }
+  .header--floating {
+    position: sticky;
+    top: 0;
+    z-index: 10;
+    background: color-mix(in srgb, var(--canvas) 85%, transparent);
+    backdrop-filter: blur(8px);
+  }
+
+  /* App sub-navigation */
+  .subnav {
+    background: var(--surface);
+    border-bottom: 1px solid var(--line);
+  }
+  .subnav__inner {
+    display: flex;
+    gap: 4px;
+    max-width: 72rem;
+    margin: 0 auto;
+    padding: 0 16px;
+    overflow-x: auto;
+  }
+  .subnav__item {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 12px 10px;
+    color: var(--muted);
+    font-size: 13px;
+    font-weight: 500;
+    white-space: nowrap;
+  }
+  .subnav__item:hover {
+    color: var(--ink);
+  }
+  .subnav__item[aria-current='page'] {
+    color: var(--ink);
+  }
+  .subnav__item[aria-current='page']::after {
+    content: '';
+    position: absolute;
+    inset: auto 10px -1px;
+    height: 2px;
+    background: var(--accent);
+  }
+
+  .app-main {
+    max-width: 72rem;
+    margin: 0 auto;
+    padding: 32px 16px 64px;
+  }
+
+  /* Page frame (components/page.tsx) */
+  .page__header {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 16px;
+    margin-bottom: 24px;
+  }
+  .page__title {
+    font-size: 24px;
+    line-height: 32px;
+    font-weight: 600;
+    letter-spacing: -0.015em;
+  }
+  .page__description {
+    margin-top: 4px;
+    color: var(--muted);
+  }
+  .page__actions {
+    display: flex;
+    gap: 8px;
+  }
+
+  /* Empty state */
+  .empty {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 8px;
+    max-width: 24rem;
+    margin: 64px auto;
+    text-align: center;
+  }
+  .empty__mark {
+    display: grid;
+    place-items: center;
+    width: 48px;
+    height: 48px;
+    margin-bottom: 8px;
+    border: 1px dashed var(--line-strong);
+    border-radius: 999px;
+    color: var(--muted);
+  }
+  .empty h1 {
+    font-size: 18px;
+    font-weight: 600;
+  }
+  .empty p {
+    color: var(--muted);
+    margin-bottom: 8px;
+  }
+
+  /* ----------------------------------------------------------------------
+   * Sign-in (layouts/auth.tsx, pages/auth/login.tsx)
+   * -------------------------------------------------------------------- */
+  .auth {
+    display: grid;
+    grid-template-rows: auto 1fr;
+    min-height: 100dvh;
+  }
+  .auth__form-col {
+    display: flex;
+    flex-direction: column;
+    justify-content: space-between;
+    gap: 40px;
+    padding: 24px 16px;
+  }
+  .auth__form-wrap {
+    width: 100%;
+    max-width: 360px;
+    margin: 0 auto;
+  }
+  .auth__eyebrow {
+    margin-bottom: 16px;
+    color: var(--accent);
+  }
+  .auth__title {
+    font-size: 32px;
+    line-height: 36px;
+    font-weight: 600;
+    letter-spacing: -0.02em;
+  }
+  .auth__sub {
+    margin-top: 8px;
+    color: var(--muted);
+    font-size: 15px;
+    line-height: 24px;
+  }
+  .auth__form {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    margin-top: 32px;
+  }
+  .auth__caption {
+    color: var(--faint);
+    text-align: center;
+  }
+  .auth__aside {
+    order: -1;
+    display: flex;
+    flex-direction: column;
+    gap: 24px;
+    padding: 16px;
+    background: var(--paper);
+    border-bottom: 1px solid var(--line);
+  }
+  .auth__aside-top {
+    display: flex;
+    justify-content: flex-end;
+  }
+  .auth__aside-body {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 24px;
+  }
+  .auth__quote {
+    max-width: 22rem;
+    color: var(--muted);
+    font-size: 15px;
+    line-height: 24px;
+    text-align: center;
+  }
+
+  @media (min-width: 900px) {
+    .auth {
+      grid-template-columns: 1fr 1.1fr;
+      grid-template-rows: none;
+    }
+    .auth__form-col {
+      padding: 32px 48px;
+    }
+    .auth__aside {
+      order: 0;
+      justify-content: space-between;
+      padding: 32px;
+      border-bottom: 0;
+      border-left: 1px solid var(--line);
+    }
+    .auth__aside-body {
+      flex: 1;
+      justify-content: center;
+    }
+    .auth__quote {
+      align-self: center;
+    }
+  }
+
+  /* ----------------------------------------------------------------------
+   * Toasts (components/ui/toaster.tsx, Base UI Toast). Stacked at the top
+   * centre: the front toast sits at index 0, older ones peek out below it.
+   * -------------------------------------------------------------------- */
+  .toast-viewport {
+    position: fixed;
+    top: 16px;
+    left: 50%;
+    z-index: 50;
+    width: min(24rem, calc(100vw - 32px));
+    transform: translateX(-50%);
+  }
+  .toast {
+    --gap: 8px;
+    --peek: 8px;
+    --scale: calc(max(0, 1 - (var(--toast-index) * 0.06)));
+    --shrink: calc(1 - var(--scale));
+    --height: var(--toast-frontmost-height, var(--toast-height));
+    --offset-y: calc(
+      var(--toast-offset-y) + (var(--toast-index) * var(--gap)) + var(--toast-swipe-movement-y)
+    );
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    z-index: calc(1000 - var(--toast-index));
+    height: var(--height);
+    transform-origin: top;
+    transform: translateX(var(--toast-swipe-movement-x))
+      translateY(
+        calc(
+          var(--toast-swipe-movement-y) + (var(--toast-index) * var(--peek)) +
+            (var(--shrink) * var(--height))
+        )
+      )
+      scale(var(--scale));
+    border: 1px solid var(--line);
+    border-radius: var(--radius-card);
+    background: var(--surface);
+    color: var(--ink);
+    box-shadow: var(--shadow-label);
+    user-select: none;
+    transition:
+      transform 0.45s cubic-bezier(0.22, 1, 0.36, 1),
+      opacity 0.3s,
+      height 0.15s;
+  }
+  /* Keeps hover alive in the gap between expanded toasts. */
+  .toast::after {
+    content: '';
+    position: absolute;
+    top: 100%;
+    left: 0;
+    width: 100%;
+    height: calc(var(--gap) + 1px);
+  }
+  .toast[data-expanded] {
+    height: var(--toast-height);
+    transform: translateX(var(--toast-swipe-movement-x)) translateY(var(--offset-y));
+  }
+  .toast[data-starting-style],
+  .toast[data-ending-style]:not([data-limited], [data-swipe-direction]) {
+    transform: translateY(-150%);
+  }
+  .toast[data-ending-style] {
+    opacity: 0;
+  }
+  .toast[data-ending-style][data-swipe-direction='up'] {
+    transform: translateY(calc(var(--toast-swipe-movement-y) - 150%));
+  }
+  .toast[data-ending-style][data-swipe-direction='left'] {
+    transform: translateX(calc(var(--toast-swipe-movement-x) - 150%)) translateY(var(--offset-y));
+  }
+  .toast[data-ending-style][data-swipe-direction='right'] {
+    transform: translateX(calc(var(--toast-swipe-movement-x) + 150%)) translateY(var(--offset-y));
+  }
+  .toast[data-limited] {
+    opacity: 0;
+  }
+  .toast__content {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 12px 12px 12px 14px;
+    overflow: hidden;
+    transition: opacity 0.25s;
+  }
+  .toast__content[data-behind] {
+    opacity: 0;
+  }
+  .toast__content[data-expanded] {
+    opacity: 1;
+  }
+  .toast__icon {
+    display: inline-flex;
+    flex-shrink: 0;
+    color: var(--ok);
+  }
+  .toast[data-type='error'] .toast__icon {
+    color: var(--danger);
+  }
+  .toast__title {
+    flex: 1;
+    min-width: 0;
+    font-size: 14px;
+    font-weight: 500;
+  }
+  .toast__close {
+    display: inline-grid;
+    place-items: center;
+    flex-shrink: 0;
+    width: 24px;
+    height: 24px;
+    border-radius: 4px;
+    color: var(--faint);
+    cursor: pointer;
+  }
+  .toast__close:hover {
+    background: var(--hover);
+    color: var(--ink);
+  }
+
+  /* ----------------------------------------------------------------------
+   * Dispatch label (components/dispatch_label.tsx): decoration only.
+   * -------------------------------------------------------------------- */
+  .dispatch {
+    position: relative;
+    width: 100%;
+    max-width: 22rem;
+    padding: 22px 20px 18px;
+    background: var(--surface);
+    border: 1px solid var(--line);
+    border-radius: var(--radius-card);
+    box-shadow: var(--shadow-label);
+    pointer-events: none;
+    user-select: none;
+  }
+  /* Perforated top edge: a row of holes painted in the aside's paper tone. */
+  .dispatch::before {
+    content: '';
+    position: absolute;
+    top: -5px;
+    left: 10px;
+    right: 10px;
+    height: 10px;
+    background: radial-gradient(circle 4px, var(--paper) 92%, transparent 100%) 0 0 / 16px 10px
+      repeat-x;
+  }
+  .dispatch__head {
+    display: flex;
+    justify-content: space-between;
+    padding-bottom: 12px;
+    border-bottom: 1px solid var(--line);
+    color: var(--muted);
+  }
+  .dispatch__fields {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 14px 16px;
+    padding: 14px 0;
+  }
+  .dispatch__fields dt {
+    color: var(--faint);
+  }
+  .dispatch__fields dd {
+    margin-top: 2px;
+    font-size: 13px;
+    font-weight: 500;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .dispatch__rule {
+    border-top: 1px dashed var(--line-strong);
+  }
+  .dispatch__foot {
+    display: flex;
+    align-items: flex-end;
+    justify-content: space-between;
+    padding-top: 14px;
+  }
+  .dispatch__barcode {
+    width: 128px;
+    height: 32px;
+    opacity: 0.85;
+    background: repeating-linear-gradient(
+      90deg,
+      var(--ink) 0 2px,
+      transparent 2px 4px,
+      var(--ink) 4px 5px,
+      transparent 5px 8px,
+      var(--ink) 8px 11px,
+      transparent 11px 12px,
+      var(--ink) 12px 13px,
+      transparent 13px 16px
+    );
+  }
+  .dispatch__stamp {
+    padding: 4px 8px;
+    border: 1.5px solid var(--accent);
+    border-radius: 4px;
+    color: var(--accent);
+    font-weight: 500;
+    transform: rotate(-4deg);
+  }
+
+  /* Mobile: the label becomes a compact strip above the form. */
+  @media (max-width: 899px) {
+    .auth__aside-body .dispatch__fields div:nth-child(n + 3),
+    .auth__aside-body .dispatch__rule,
+    .auth__aside-body .dispatch__foot,
+    .auth__aside-body .auth__quote {
+      display: none;
+    }
+    .auth__aside-body .dispatch__fields {
+      padding-bottom: 0;
+    }
+  }
+
+  @media (prefers-reduced-motion: no-preference) {
+    .dispatch {
+      animation: dispatch-settle var(--dur-settle) ease-out both;
+    }
+    .dispatch__stamp {
+      animation: stamp-in var(--dur-settle) ease-out 120ms both;
+    }
+  }
+
+  /* Mono label used for eyebrows, captions and the dispatch label */
+  .label-mono {
+    font-family: var(--font-mono);
+    font-size: 11px;
+    line-height: 16px;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+  }
+}
+
+@keyframes dispatch-settle {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+}
+
+@keyframes stamp-in {
+  from {
+    opacity: 0;
+    transform: rotate(-4deg) scale(0.96);
+  }
+}

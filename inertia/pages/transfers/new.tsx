@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState, type FormEvent, type ReactNode } from 'react'
 import { router } from '@inertiajs/react'
-import { toast } from 'sonner'
+import { toast } from '~/components/ui/toaster'
 import { RotateCcw, Upload } from 'lucide-react'
 import Page from '~/components/page'
 import AppLayout from '~/layouts/app'
